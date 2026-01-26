@@ -1,0 +1,70 @@
+version: '3.8'
+
+# Development docker-compose - only runs databases
+# Use this to run MongoDB and Redis locally while developing
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: fintrack-mongodb-dev
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: fintrack-pro
+    volumes:
+      - mongodb_dev_data:/data/db
+    networks:
+      - fintrack-dev-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: fintrack-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - fintrack-dev-network
+
+  # Redis Commander (Redis GUI)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: fintrack-redis-commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - fintrack-dev-network
+
+  # Mongo Express (MongoDB GUI)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: fintrack-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    depends_on:
+      - mongodb
+    networks:
+      - fintrack-dev-network
+
+volumes:
+  mongodb_dev_data:
+  redis_dev_data:
+
+networks:
+  fintrack-dev-network:
+    driver: bridge

@@ -1,0 +1,96 @@
+# ===============================================
+# Node.js / JavaScript / TypeScript
+# ===============================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# ===============================================
+# Environment Variables
+# ===============================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ===============================================
+# Python
+# ===============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ===============================================
+# IDEs / Editors
+# ===============================================
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ===============================================
+# Docker
+# ===============================================
+*.log
+.dockerignore
+
+# ===============================================
+# Database
+# ===============================================
+*.db
+*.sqlite
+*.sqlite3
+data/
+mongo-data/
+redis-data/
+
+# ===============================================
+# Uploads / User Content
+# ===============================================
+uploads/
+receipts/
+reports/
+temp/
+
+# ===============================================
+# OS
+# ===============================================
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+
+# ===============================================
+# Misc
+# ===============================================
+*.bak
+*.tmp
+*.cache
+.cache/
