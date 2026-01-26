@@ -20,10 +20,11 @@ import {
   Landmark,
   Receipt,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   Dialog,
@@ -76,10 +77,11 @@ export default function Debts() {
   const [payoffStrategy, setPayoffStrategy] = useState<'avalanche' | 'snowball'>('avalanche');
 
   // Fetch debts
-  const { data: debts, isLoading } = useQuery({
+  const { data: debtsData, isLoading } = useQuery({
     queryKey: ['debts'],
-    queryFn: () => api.get<Debt[]>('/debts'),
+    queryFn: () => api.get<{ debts: Debt[] }>('/debts'),
   });
+  const debts = debtsData?.debts || [];
 
   // Form
   const {
@@ -88,11 +90,13 @@ export default function Debts() {
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<DebtFormData>({
     resolver: zodResolver(debtSchema),
     defaultValues: {
       type: 'credit_card',
+      startDate: new Date(),
     },
   });
 
@@ -108,6 +112,18 @@ export default function Debts() {
         type: 'success',
         title: 'Debt added',
         message: 'Your debt has been added successfully.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+    onError: (error: any) => {
+      console.error('Debt creation error:', error);
+      console.error('Error response:', error.response?.data);
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to add debt. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });
@@ -186,7 +202,9 @@ export default function Debts() {
     setValue('currentBalance', debt.currentBalance);
     setValue('interestRate', debt.interestRate);
     setValue('minimumPayment', debt.minimumPayment);
-    setValue('dueDay', debt.dueDay);
+    setValue('dueDate', debt.dueDay);
+    setValue('startDate', debt.startDate ? new Date(debt.startDate) : new Date());
+    setValue('lender', debt.lender || '');
     setValue('notes', debt.notes || '');
     setIsDialogOpen(true);
   };
@@ -221,7 +239,8 @@ export default function Debts() {
     setEditingDebt(null);
     reset({
       type: 'credit_card',
-      dueDay: 1,
+      dueDate: 1,
+      startDate: new Date(),
     });
     setIsDialogOpen(true);
   };
@@ -599,14 +618,35 @@ export default function Debts() {
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Due Day (1-31)"
+                type="number"
+                min="1"
+                max="31"
+                placeholder="1"
+                error={errors.dueDate?.message}
+                {...register('dueDate', { valueAsNumber: true })}
+              />
+              <Controller
+                name="startDate"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker
+                    label="Start Date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.startDate?.message}
+                  />
+                )}
+              />
+            </div>
+
             <Input
-              label="Due Day (1-31)"
-              type="number"
-              min="1"
-              max="31"
-              placeholder="1"
-              error={errors.dueDay?.message}
-              {...register('dueDay', { valueAsNumber: true })}
+              label="Lender (optional)"
+              placeholder="e.g., Chase Bank"
+              error={errors.lender?.message}
+              {...register('lender')}
             />
 
             <Input

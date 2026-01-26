@@ -51,16 +51,18 @@ export default function Budgets() {
   const [deletingBudgetId, setDeletingBudgetId] = useState<string | null>(null);
 
   // Fetch budgets
-  const { data: budgets, isLoading } = useQuery({
+  const { data: budgetsData, isLoading } = useQuery({
     queryKey: ['budgets'],
-    queryFn: () => api.get<Budget[]>('/budgets'),
+    queryFn: () => api.get<{ budgets: Budget[] }>('/budgets'),
   });
+  const budgets = budgetsData?.budgets || [];
 
   // Fetch categories
-  const { data: categories } = useQuery({
+  const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => api.get<Category[]>('/categories'),
+    queryFn: () => api.get<{ categories: Category[] }>('/categories'),
   });
+  const categories = categoriesData?.categories || [];
 
   // Fetch monthly summary for spending data
   const { data: summary } = useQuery({
@@ -95,6 +97,17 @@ export default function Budgets() {
         type: 'success',
         title: 'Budget created',
         message: 'Your budget has been created successfully.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+    onError: (error: any) => {
+      console.error('Budget creation error:', error);
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to create budget. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });
@@ -147,10 +160,19 @@ export default function Budgets() {
 
   // Handlers
   const onSubmit = (data: BudgetFormData) => {
+    console.log('Budget form submitted:', data);
+    console.log('Form errors:', errors);
+    
+    // Transform category to categoryId for backend
+    const submitData = {
+      ...data,
+      categoryId: data.category,
+    };
+    
     if (editingBudget) {
-      updateMutation.mutate({ id: editingBudget.id, data });
+      updateMutation.mutate({ id: editingBudget.id, data: submitData });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(submitData);
     }
   };
 
@@ -158,7 +180,7 @@ export default function Budgets() {
     setEditingBudget(budget);
     setValue('name', budget.name);
     setValue('amount', budget.amount);
-    setValue('category', budget.category);
+    setValue('category', budget.category.id);
     setValue('period', budget.period);
     setValue('alertThreshold', budget.alertThreshold || 80);
     setIsDialogOpen(true);
@@ -186,7 +208,7 @@ export default function Budgets() {
 
   // Calculate totals
   const totalBudget = budgets?.reduce((sum, b) => sum + b.amount, 0) || 0;
-  const totalSpent = budgets?.reduce((sum, b) => sum + getCategorySpent(b.category), 0) || 0;
+  const totalSpent = budgets?.reduce((sum, b) => sum + getCategorySpent(b.category.name), 0) || 0;
   const totalRemaining = totalBudget - totalSpent;
 
   if (isLoading) {
@@ -276,7 +298,7 @@ export default function Budgets() {
       {budgets && budgets.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {budgets.map((budget) => {
-            const spent = getCategorySpent(budget.category);
+            const spent = getCategorySpent(budget.category.name);
             const percentage = (spent / budget.amount) * 100;
             const remaining = budget.amount - spent;
             const isOverBudget = percentage > 100;
@@ -350,7 +372,7 @@ export default function Budgets() {
                           isOverBudget ? 'destructive' : isNearLimit ? 'warning' : 'secondary'
                         }
                       >
-                        {budget.category}
+                        {budget.category.name}
                       </Badge>
                       <span
                         className={cn(
@@ -457,7 +479,7 @@ export default function Budgets() {
                   {categories
                     ?.filter((cat) => cat.type === 'expense' || cat.type === 'both')
                     .map((cat) => (
-                      <SelectItem key={cat.id} value={cat.name}>
+                      <SelectItem key={cat.id} value={cat.id}>
                         <span className="flex items-center gap-2">
                           <span
                             className="h-3 w-3 rounded-full"

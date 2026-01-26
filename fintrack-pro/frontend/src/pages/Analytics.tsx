@@ -61,22 +61,25 @@ export default function Analytics() {
   const selectedRange = TIME_RANGES.find((r) => r.value === timeRange) || TIME_RANGES[1];
 
   // Fetch trends
-  const { data: trends, isLoading: trendsLoading } = useQuery({
+  const { data: trendsData, isLoading: trendsLoading } = useQuery({
     queryKey: ['trends', timeRange],
-    queryFn: () => api.get<Trend[]>(`/analytics/trends?months=${selectedRange.months}`),
+    queryFn: () => api.get<{ trends: Trend[] }>(`/analytics/trends?months=${selectedRange.months}`),
   });
+  const trends = trendsData?.trends || [];
 
   // Fetch current month summary
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summaryData, isLoading: summaryLoading } = useQuery({
     queryKey: ['monthly-summary'],
-    queryFn: () => api.get<MonthlySummary>('/analytics/monthly'),
+    queryFn: () => api.get<{ summary: MonthlySummary }>('/analytics/monthly'),
   });
+  const summary = summaryData?.summary;
 
   // Fetch health score
-  const { data: healthScore, isLoading: healthLoading } = useQuery({
+  const { data: healthData, isLoading: healthLoading } = useQuery({
     queryKey: ['health-score'],
-    queryFn: () => api.get<FinancialHealth>('/health/latest'),
+    queryFn: () => api.get<{ health: FinancialHealth }>('/health/latest'),
   });
+  const healthScore = healthData?.health;
 
   // Fetch category breakdown
   const { data: categoryBreakdown, isLoading: categoryLoading } = useQuery({
@@ -338,30 +341,30 @@ export default function Analytics() {
                       <div>
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Savings</span>
-                          <span className="font-medium">{healthScore.categoryScores.savings}%</span>
+                          <span className="font-medium">{healthScore?.categoryScores?.savings || 0}%</span>
                         </div>
-                        <Progress value={healthScore.categoryScores.savings} />
+                        <Progress value={healthScore?.categoryScores?.savings || 0} />
                       </div>
                       <div>
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Spending</span>
-                          <span className="font-medium">{healthScore.categoryScores.spending}%</span>
+                          <span className="font-medium">{healthScore?.categoryScores?.spending || 0}%</span>
                         </div>
-                        <Progress value={healthScore.categoryScores.spending} />
+                        <Progress value={healthScore?.categoryScores?.spending || 0} />
                       </div>
                       <div>
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Goals</span>
-                          <span className="font-medium">{healthScore.categoryScores.goals}%</span>
+                          <span className="font-medium">{healthScore?.categoryScores?.goals || 0}%</span>
                         </div>
-                        <Progress value={healthScore.categoryScores.goals} />
+                        <Progress value={healthScore?.categoryScores?.goals || 0} />
                       </div>
                       <div>
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Debt</span>
-                          <span className="font-medium">{healthScore.categoryScores.debt}%</span>
+                          <span className="font-medium">{healthScore?.categoryScores?.debt || 0}%</span>
                         </div>
-                        <Progress value={healthScore.categoryScores.debt} />
+                        <Progress value={healthScore?.categoryScores?.debt || 0} />
                       </div>
                     </div>
                   </div>

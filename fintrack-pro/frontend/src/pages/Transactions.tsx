@@ -18,10 +18,11 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   Dialog,
@@ -92,10 +93,11 @@ export default function Transactions() {
   });
 
   // Fetch categories
-  const { data: categories } = useQuery({
+  const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => api.get<Category[]>('/categories'),
+    queryFn: () => api.get<{ categories: Category[] }>('/categories'),
   });
+  const categories = categoriesData?.categories || [];
 
   // Form
   const {
@@ -104,12 +106,13 @@ export default function Transactions() {
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
       type: 'expense',
-      date: new Date().toISOString().split('T')[0],
+      date: new Date(),
     },
   });
 
@@ -132,12 +135,14 @@ export default function Transactions() {
         read: false,
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error('Transaction creation error:', error);
+      console.error('Error response:', error.response?.data);
       addNotification({
         id: Date.now().toString(),
         type: 'error',
         title: 'Error',
-        message: 'Failed to create transaction. Please try again.',
+        message: error.response?.data?.message || 'Failed to create transaction. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });
@@ -184,20 +189,57 @@ export default function Transactions() {
 
   // Handlers
   const onSubmit = (data: TransactionFormData) => {
+    console.log('Form submitted with data:', data);
+    console.log('Validation errors:', errors);
+    console.log('Categories available:', categories);
+    
+    // category field now contains the categoryId directly
+    if (!data.category) {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: 'Please select a category.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+      return;
+    }
+    
+    const submitData = {
+      ...data,
+      categoryId: data.category,
+    };
+    
     if (editingTransaction) {
-      updateMutation.mutate({ id: editingTransaction.id, data });
+      updateMutation.mutate({ id: editingTransaction.id, data: submitData });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(submitData);
     }
   };
 
   const handleEdit = (transaction: Transaction) => {
+    // Skip transfer transactions since backend doesn't support them
+    if (transaction.type === 'transfer') {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Not Supported',
+        message: 'Transfer transactions cannot be edited yet.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+      return;
+    }
+    
     setEditingTransaction(transaction);
     setValue('description', transaction.description);
     setValue('amount', transaction.amount);
-    setValue('type', transaction.type);
-    setValue('category', transaction.category);
-    setValue('date', new Date(transaction.date).toISOString().split('T')[0]);
+    setValue('type', transaction.type as 'income' | 'expense');
+    // Find categoryId from category name
+    const categoryId = categories?.find(c => c.name === transaction.category)?.id;
+    setValue('category', categoryId || '');
+    setValue('date', new Date(transaction.date));
     setValue('notes', transaction.notes || '');
     setIsDialogOpen(true);
   };
@@ -217,7 +259,7 @@ export default function Transactions() {
     setEditingTransaction(null);
     reset({
       type: 'expense',
-      date: new Date().toISOString().split('T')[0],
+      date: new Date(),
     });
     setIsDialogOpen(true);
   };
@@ -462,8 +504,8 @@ export default function Transactions() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-3 gap-2">
-              {(['expense', 'income', 'transfer'] as const).map((type) => (
+            <div className="grid grid-cols-2 gap-2">
+              {(['expense', 'income'] as const).map((type) => (
                 <Button
                   key={type}
                   type="button"
@@ -493,11 +535,17 @@ export default function Transactions() {
                 error={errors.amount?.message}
                 {...register('amount', { valueAsNumber: true })}
               />
-              <Input
-                label="Date"
-                type="date"
-                error={errors.date?.message}
-                {...register('date')}
+              <Controller
+                name="date"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker
+                    label="Date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.date?.message}
+                  />
+                )}
               />
             </div>
 
@@ -514,7 +562,7 @@ export default function Transactions() {
                   {categories
                     ?.filter((cat) => cat.type === selectedType || cat.type === 'both')
                     .map((cat) => (
-                      <SelectItem key={cat.id} value={cat.name}>
+                      <SelectItem key={cat.id} value={cat.id}>
                         <span className="flex items-center gap-2">
                           <span
                             className="h-3 w-3 rounded-full"

@@ -18,7 +18,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   ResponsiveContainer,
@@ -35,6 +35,7 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   Dialog,
@@ -78,10 +79,11 @@ export default function Investments() {
   const [activeTab, setActiveTab] = useState('portfolio');
 
   // Fetch investments
-  const { data: investments, isLoading } = useQuery({
+  const { data: investmentsData, isLoading } = useQuery({
     queryKey: ['investments'],
-    queryFn: () => api.get<Investment[]>('/investments'),
+    queryFn: () => api.get<{ investments: Investment[] }>('/investments'),
   });
+  const investments = investmentsData?.investments || [];
 
   // Form
   const {
@@ -90,11 +92,12 @@ export default function Investments() {
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<InvestmentFormData>({
     resolver: zodResolver(investmentSchema),
     defaultValues: {
-      type: 'stocks',
+      type: 'stock',
     },
   });
 
@@ -110,6 +113,18 @@ export default function Investments() {
         type: 'success',
         title: 'Investment added',
         message: 'Your investment has been added successfully.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+    onError: (error: any) => {
+      console.error('Investment creation error:', error);
+      console.error('Error response:', error.response?.data);
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to add investment. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });
@@ -166,10 +181,10 @@ export default function Investments() {
     setValue('name', investment.name);
     setValue('symbol', investment.symbol || '');
     setValue('type', investment.type);
-    setValue('shares', investment.shares);
+    setValue('quantity', investment.quantity);
     setValue('purchasePrice', investment.purchasePrice);
-    setValue('currentPrice', investment.currentPrice);
-    setValue('purchaseDate', new Date(investment.purchaseDate).toISOString().split('T')[0]);
+    setValue('purchaseDate', new Date(investment.purchaseDate));
+    setValue('currency', investment.currency);
     setValue('notes', investment.notes || '');
     setIsDialogOpen(true);
   };
@@ -188,22 +203,23 @@ export default function Investments() {
   const handleOpenDialog = () => {
     setEditingInvestment(null);
     reset({
-      type: 'stocks',
-      purchaseDate: new Date().toISOString().split('T')[0],
+      type: 'stock',
+      currency: 'USD',
+      purchaseDate: new Date(),
     });
     setIsDialogOpen(true);
   };
 
   // Calculate totals
-  const totalInvested = investments?.reduce((sum, inv) => sum + inv.purchasePrice * inv.shares, 0) || 0;
-  const totalValue = investments?.reduce((sum, inv) => sum + inv.currentPrice * inv.shares, 0) || 0;
+  const totalInvested = investments?.reduce((sum, inv) => sum + inv.purchasePrice * inv.quantity, 0) || 0;
+  const totalValue = investments?.reduce((sum, inv) => sum + inv.currentPrice * inv.quantity, 0) || 0;
   const totalGainLoss = totalValue - totalInvested;
   const totalGainLossPercent = totalInvested > 0 ? (totalGainLoss / totalInvested) * 100 : 0;
 
   // Group by type for pie chart
   const typeBreakdown = investments?.reduce((acc, inv) => {
     const type = inv.type;
-    const value = inv.currentPrice * inv.shares;
+    const value = inv.currentPrice * inv.quantity;
     const existing = acc.find((item) => item.type === type);
     if (existing) {
       existing.value += value;
@@ -353,8 +369,8 @@ export default function Investments() {
               {investments.map((investment) => {
                 const typeInfo = INVESTMENT_TYPES.find((t) => t.value === investment.type);
                 const Icon = typeInfo?.Icon || Coins;
-                const totalValue = investment.currentPrice * investment.shares;
-                const totalCost = investment.purchasePrice * investment.shares;
+                const totalValue = investment.currentPrice * investment.quantity;
+                const totalCost = investment.purchasePrice * investment.quantity;
                 const gainLoss = totalValue - totalCost;
                 const gainLossPercent = (gainLoss / totalCost) * 100;
 
@@ -374,7 +390,7 @@ export default function Investments() {
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              {investment.shares} shares @ {formatCurrency(investment.currentPrice)}
+                              {investment.quantity} shares @ {formatCurrency(investment.currentPrice)}
                             </p>
                           </div>
                         </div>
@@ -614,22 +630,28 @@ export default function Investments() {
 
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Shares/Units"
+                label="Quantity"
                 type="number"
                 step="0.0001"
                 placeholder="0"
-                error={errors.shares?.message}
-                {...register('shares', { valueAsNumber: true })}
+                error={errors.quantity?.message}
+                {...register('quantity', { valueAsNumber: true })}
               />
-              <Input
-                label="Purchase Date"
-                type="date"
-                error={errors.purchaseDate?.message}
-                {...register('purchaseDate')}
+              <Controller
+                name="purchaseDate"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker
+                    label="Purchase Date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.purchaseDate?.message}
+                  />
+                )}
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <Input
                 label="Purchase Price"
                 type="number"
@@ -638,15 +660,6 @@ export default function Investments() {
                 leftAddon="$"
                 error={errors.purchasePrice?.message}
                 {...register('purchasePrice', { valueAsNumber: true })}
-              />
-              <Input
-                label="Current Price"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                leftAddon="$"
-                error={errors.currentPrice?.message}
-                {...register('currentPrice', { valueAsNumber: true })}
               />
             </div>
 

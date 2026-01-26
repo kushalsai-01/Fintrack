@@ -114,16 +114,18 @@ export default function Dashboard() {
   const currentYear = currentDate.getFullYear();
 
   // Fetch monthly summary
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summaryData, isLoading: summaryLoading } = useQuery({
     queryKey: ['monthly-summary', currentYear, currentMonth],
-    queryFn: () => api.get<MonthlySummary>(`/analytics/monthly?year=${currentYear}&month=${currentMonth}`),
+    queryFn: () => api.get<{ summary: MonthlySummary }>(`/analytics/monthly?year=${currentYear}&month=${currentMonth}`),
   });
+  const summary = summaryData?.summary;
 
   // Fetch health score
-  const { data: healthScore, isLoading: healthLoading } = useQuery({
+  const { data: healthData, isLoading: healthLoading } = useQuery({
     queryKey: ['health-score'],
-    queryFn: () => api.get<FinancialHealth>('/health/latest'),
+    queryFn: () => api.get<{ health: FinancialHealth }>('/health/latest'),
   });
+  const healthScore = healthData?.health;
 
   // Fetch forecast
   const { data: forecast, isLoading: forecastLoading } = useQuery({
@@ -132,16 +134,18 @@ export default function Dashboard() {
   });
 
   // Fetch goals
-  const { data: goals, isLoading: goalsLoading } = useQuery({
+  const { data: goalsData, isLoading: goalsLoading } = useQuery({
     queryKey: ['goals'],
-    queryFn: () => api.get<Goal[]>('/goals?status=active&limit=4'),
+    queryFn: () => api.get<{ goals: Goal[] }>('/goals?status=active&limit=4'),
   });
+  const goals = goalsData?.goals || [];
 
   // Fetch recent transactions
-  const { data: recentTransactions, isLoading: transactionsLoading } = useQuery({
+  const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
     queryKey: ['recent-transactions'],
-    queryFn: () => api.get<Transaction[]>('/transactions?limit=5'),
+    queryFn: () => api.get<{ transactions: Transaction[]; total: number; page: number; totalPages: number }>('/transactions?limit=5'),
   });
+  const recentTransactions = transactionsData?.transactions || [];
 
   const isLoading = summaryLoading || healthLoading;
 

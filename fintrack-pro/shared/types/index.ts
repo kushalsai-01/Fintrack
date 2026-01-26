@@ -924,6 +924,13 @@ export interface PaginationMeta {
   hasPrev: boolean;
 }
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 // WebSocket Event Types
 export interface WebSocketEvent<T = unknown> {
   type: WebSocketEventType;

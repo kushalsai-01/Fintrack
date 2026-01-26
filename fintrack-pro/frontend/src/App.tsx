@@ -74,6 +74,11 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 /**
  * Main App Component
+ * 
+ * FIXED: Moved all useEffect hooks BEFORE any conditional returns.
+ * React hooks must be called in the same order on every render.
+ * Having useEffect after a conditional return violated the Rules of Hooks
+ * and caused a silent crash resulting in blank screen.
  */
 function App() {
   const { fetchUser, isAuthenticated } = useAuthStore();
@@ -81,30 +86,31 @@ function App() {
   const [isInitialized, setIsInitialized] = React.useState(false);
 
   // Initialize auth on mount
+  // FIXED: Use empty dependency array to run only once
+  // FIXED: Always set isInitialized even if fetchUser fails
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('accessToken');
-      if (token) {
-        await fetchUser();
+      try {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+          await fetchUser();
+        }
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
+      } finally {
+        // Always initialize, regardless of success/failure
+        setIsInitialized(true);
       }
-      setIsInitialized(true);
     };
     
     initAuth();
-  }, [fetchUser]);
-
-  // Show nothing while initializing to prevent flash
-  if (!isInitialized) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty array - run only once on mount
 
   // Connect WebSocket when authenticated
+  // FIXED: This useEffect was AFTER a conditional return, violating Rules of Hooks
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && isInitialized) {
       connect();
       fetchNotifications();
     } else {
@@ -114,7 +120,17 @@ function App() {
     return () => {
       disconnect();
     };
-  }, [isAuthenticated, connect, disconnect, fetchNotifications]);
+  }, [isAuthenticated, isInitialized, connect, disconnect, fetchNotifications]);
+
+  // Show loading while initializing (moved AFTER all hooks)
+  if (!isInitialized) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-background" style={{ backgroundColor: 'var(--background, #0f172a)', color: 'var(--foreground, #f8fafc)' }}>
+        <LoadingSpinner size="lg" />
+        <p className="mt-4 text-muted-foreground" style={{ color: 'var(--muted-foreground, #94a3b8)' }}>Loading FinTrack Pro...</p>
+      </div>
+    );
+  }
 
   return (
     <BrowserRouter>

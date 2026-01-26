@@ -16,6 +16,8 @@ export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) 
   return (
     <svg
       className={cn('animate-spin text-primary', sizeClasses[size], className)}
+      // FIXED: Added inline styles as fallback in case CSS variables aren't loaded
+      style={{ color: 'var(--primary, #3b82f6)' }}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"

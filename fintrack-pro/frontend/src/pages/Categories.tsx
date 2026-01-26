@@ -134,13 +134,12 @@ export default function Categories() {
   });
 
   // Fetch categories
-  const { data: categories = [], isLoading } = useQuery({
+  const { data: categoriesData, isLoading } = useQuery({
     queryKey: ['categories'],
-    queryFn: async () => {
-      const response = await api.get<{ categories: CategoryWithStats[] }>('/categories');
-      return response.categories;
-    },
+    queryFn: () => api.get<{ categories: CategoryWithStats[] }>('/categories?withStats=true'),
   });
+
+  const categories = categoriesData?.categories || [];
 
   // Mutations
   const createMutation = useMutation({

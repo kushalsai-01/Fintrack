@@ -20,10 +20,11 @@ import {
   Clock,
   Pause,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   Dialog,
@@ -94,10 +95,11 @@ export default function Goals() {
   const [activeTab, setActiveTab] = useState('active');
 
   // Fetch goals
-  const { data: goals, isLoading } = useQuery({
+  const { data: goalsData, isLoading } = useQuery({
     queryKey: ['goals'],
-    queryFn: () => api.get<Goal[]>('/goals'),
+    queryFn: () => api.get<{ goals: Goal[] }>('/goals'),
   });
+  const goals = goalsData?.goals || [];
 
   // Form
   const {
@@ -106,6 +108,7 @@ export default function Goals() {
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<GoalFormData>({
     resolver: zodResolver(goalSchema),
@@ -113,6 +116,8 @@ export default function Goals() {
       icon: 'savings',
       color: '#3b82f6',
       currentAmount: 0,
+      priority: 'medium',
+      autoContribute: false,
     },
   });
 
@@ -131,6 +136,17 @@ export default function Goals() {
         type: 'success',
         title: 'Goal created',
         message: 'Your goal has been created successfully.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+    onError: (error: any) => {
+      console.error('Goal creation error:', error);
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to create goal. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });
@@ -194,6 +210,8 @@ export default function Goals() {
 
   // Handlers
   const onSubmit = (data: GoalFormData) => {
+    console.log('Goal form submitted:', data);
+    console.log('Form errors:', errors);
     if (editingGoal) {
       updateMutation.mutate({ id: editingGoal.id, data });
     } else {
@@ -206,10 +224,14 @@ export default function Goals() {
     setValue('name', goal.name);
     setValue('targetAmount', goal.targetAmount);
     setValue('currentAmount', goal.currentAmount);
-    setValue('targetDate', new Date(goal.targetDate).toISOString().split('T')[0]);
+    setValue('targetDate', new Date(goal.targetDate));
     setValue('icon', goal.icon || 'savings');
     setValue('color', goal.color || '#3b82f6');
-    setValue('notes', goal.notes || '');
+    // Filter out 'critical' priority since backend doesn't support it
+    const validPriority = goal.priority === 'critical' ? 'high' : goal.priority;
+    setValue('priority', validPriority);
+    setValue('autoContributeAmount', goal.monthlyContribution);
+    setValue('autoContribute', goal.autoContribute);
     setIsDialogOpen(true);
   };
 
@@ -244,7 +266,7 @@ export default function Goals() {
       icon: 'savings',
       color: '#3b82f6',
       currentAmount: 0,
-      targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 90 days from now
+      targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
     });
     setIsDialogOpen(true);
   };
@@ -369,9 +391,9 @@ export default function Goals() {
                   </span>
                 )}
               </Badge>
-              {!isCompleted && goal.monthlyRequired && (
+              {!isCompleted && goal.monthlyContribution > 0 && (
                 <span className="text-sm text-muted-foreground">
-                  {formatCurrency(goal.monthlyRequired)}/mo needed
+                  {formatCurrency(goal.monthlyContribution)}/mo contribution
                 </span>
               )}
             </div>
@@ -556,11 +578,17 @@ export default function Goals() {
               />
             </div>
 
-            <Input
-              label="Target Date"
-              type="date"
-              error={errors.targetDate?.message}
-              {...register('targetDate')}
+            <Controller
+              name="targetDate"
+              control={control}
+              render={({ field }) => (
+                <DatePicker
+                  label="Target Date"
+                  value={field.value}
+                  onChange={field.onChange}
+                  error={errors.targetDate?.message}
+                />
+              )}
             />
 
             <div>
@@ -601,12 +629,6 @@ export default function Goals() {
                 ))}
               </div>
             </div>
-
-            <Input
-              label="Notes (optional)"
-              placeholder="Add any notes about this goal..."
-              {...register('notes')}
-            />
 
             <DialogFooter>
               <Button

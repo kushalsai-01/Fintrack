@@ -20,10 +20,11 @@ import {
   Film,
   ShoppingBag,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   Dialog,
@@ -74,16 +75,18 @@ export default function Bills() {
   const [activeTab, setActiveTab] = useState('upcoming');
 
   // Fetch bills
-  const { data: bills, isLoading } = useQuery({
+  const { data: billsData, isLoading } = useQuery({
     queryKey: ['bills'],
-    queryFn: () => api.get<Bill[]>('/bills'),
+    queryFn: () => api.get<{ bills: Bill[] }>('/bills'),
   });
+  const bills = billsData?.bills || [];
 
   // Fetch categories
-  const { data: categories } = useQuery({
+  const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => api.get<Category[]>('/categories'),
+    queryFn: () => api.get<{ categories: Category[] }>('/categories'),
   });
+  const categories = categoriesData?.categories || [];
 
   // Form
   const {
@@ -92,6 +95,7 @@ export default function Bills() {
     reset,
     setValue,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<BillFormData>({
     resolver: zodResolver(billSchema),
@@ -114,6 +118,18 @@ export default function Bills() {
         type: 'success',
         title: 'Bill created',
         message: 'Your bill has been added successfully.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+    onError: (error: any) => {
+      console.error('Bill creation error:', error);
+      console.error('Error response:', error.response?.data);
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: error.response?.data?.message || 'Failed to create bill. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });
@@ -173,10 +189,19 @@ export default function Bills() {
 
   // Handlers
   const onSubmit = (data: BillFormData) => {
+    console.log('Bill form submitted:', data);
+    console.log('Form errors:', errors);
+    
+    // Transform category to categoryId for backend
+    const submitData = {
+      ...data,
+      categoryId: data.category,
+    };
+    
     if (editingBill) {
-      updateMutation.mutate({ id: editingBill.id, data });
+      updateMutation.mutate({ id: editingBill.id, data: submitData });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(submitData);
     }
   };
 
@@ -184,11 +209,14 @@ export default function Bills() {
     setEditingBill(bill);
     setValue('name', bill.name);
     setValue('amount', bill.amount);
-    setValue('dueDate', new Date(bill.dueDate).toISOString().split('T')[0]);
+    setValue('dueDate', new Date(bill.dueDate));
     setValue('frequency', bill.frequency);
-    setValue('category', bill.category);
+    // Find categoryId from category name or use category if it's already an ID
+    const categoryId = categories?.find(c => c.name === bill.category)?.id || bill.category;
+    setValue('category', categoryId);
     setValue('isAutoPay', bill.isAutoPay);
-    setValue('reminderDays', bill.reminderDays || 3);
+    // Extract first value from array if it's an array, otherwise use default
+    setValue('reminderDays', Array.isArray(bill.reminderDays) ? (bill.reminderDays[0] || 3) : 3);
     setValue('notes', bill.notes || '');
     setIsDialogOpen(true);
   };
@@ -210,7 +238,7 @@ export default function Bills() {
       frequency: 'monthly',
       isAutoPay: false,
       reminderDays: 3,
-      dueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(),
     });
     setIsDialogOpen(true);
   };
@@ -515,11 +543,17 @@ export default function Bills() {
                 error={errors.amount?.message}
                 {...register('amount', { valueAsNumber: true })}
               />
-              <Input
-                label="Due Date"
-                type="date"
-                error={errors.dueDate?.message}
-                {...register('dueDate')}
+              <Controller
+                name="dueDate"
+                control={control}
+                render={({ field }) => (
+                  <DatePicker
+                    label="Due Date"
+                    value={field.value}
+                    onChange={field.onChange}
+                    error={errors.dueDate?.message}
+                  />
+                )}
               />
             </div>
 
@@ -555,7 +589,7 @@ export default function Bills() {
                     {categories
                       ?.filter((cat) => cat.type === 'expense' || cat.type === 'both')
                       .map((cat) => (
-                        <SelectItem key={cat.id} value={cat.name}>
+                        <SelectItem key={cat.id} value={cat.id}>
                           {cat.name}
                         </SelectItem>
                       ))}

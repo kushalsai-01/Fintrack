@@ -46,20 +46,23 @@ export default function Profile() {
   const { user } = useAuthStore();
 
   // Fetch user stats
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summaryData, isLoading: summaryLoading } = useQuery({
     queryKey: ['monthly-summary'],
-    queryFn: () => api.get<MonthlySummary>('/analytics/monthly'),
+    queryFn: () => api.get<{ summary: MonthlySummary }>('/analytics/monthly'),
   });
+  const summary = summaryData?.summary;
 
-  const { data: healthScore, isLoading: healthLoading } = useQuery({
+  const { data: healthData, isLoading: healthLoading } = useQuery({
     queryKey: ['health-score'],
-    queryFn: () => api.get<FinancialHealth>('/health/latest'),
+    queryFn: () => api.get<{ health: FinancialHealth }>('/health/latest'),
   });
+  const healthScore = healthData?.health;
 
-  const { data: goals, isLoading: goalsLoading } = useQuery({
+  const { data: goalsData, isLoading: goalsLoading } = useQuery({
     queryKey: ['goals'],
-    queryFn: () => api.get<Goal[]>('/goals'),
+    queryFn: () => api.get<{ goals: Goal[] }>('/goals'),
   });
+  const goals = goalsData?.goals || [];
 
   const { data: stats } = useQuery({
     queryKey: ['user-stats'],
@@ -126,22 +129,9 @@ export default function Profile() {
               <p className="text-muted-foreground">{user?.email}</p>
 
               <div className="flex items-center gap-2 mt-2">
-                <Badge variant={user?.isPremium ? 'default' : 'secondary'}>
-                  {user?.isPremium ? (
-                    <>
-                      <Star className="h-3 w-3 mr-1" />
-                      Premium
-                    </>
-                  ) : (
-                    'Free Plan'
-                  )}
+                <Badge variant="secondary">
+                  Free Plan
                 </Badge>
-                {user?.isVerified && (
-                  <Badge variant="success">
-                    <Shield className="h-3 w-3 mr-1" />
-                    Verified
-                  </Badge>
-                )}
               </div>
 
               <div className="w-full mt-6 space-y-3">
@@ -160,7 +150,7 @@ export default function Profile() {
                 </div>
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{user?.currency || 'USD'}</span>
+                  <span className="text-sm">{user?.preferredCurrency || 'USD'}</span>
                 </div>
               </div>
 

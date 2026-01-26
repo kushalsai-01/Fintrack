@@ -31,7 +31,7 @@ export const registerSchema = z.object({
 
 // Transaction Schemas
 export const transactionSchema = z.object({
-  type: z.enum(['income', 'expense', 'transfer']),
+  type: z.enum(['income', 'expense']),
   amount: z.number().positive('Amount must be positive'),
   currency: z.string().default('USD'),
   description: z.string().min(1, 'Description is required').max(500),
@@ -57,8 +57,8 @@ export const categorySchema = z.object({
 // Budget Schema
 export const budgetSchema = z.object({
   name: z.string().optional(),
-  categoryId: z.string().min(1, 'Category is required'),
-  category: z.string().optional(), // Alias
+  category: z.string().min(1, 'Category is required'), // Form uses 'category', transform to 'categoryId' in onSubmit
+  categoryId: z.string().optional(), // Alias for backend
   amount: z.number().positive('Budget amount must be positive'),
   period: z.enum(['weekly', 'monthly', 'quarterly', 'yearly']),
   startDate: z.date().optional(),
@@ -72,13 +72,13 @@ export const goalSchema = z.object({
   description: z.string().max(500).optional(),
   icon: z.string().default('Target'),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#3b82f6'),
-  type: z.enum(['savings', 'debt_payoff', 'investment', 'purchase', 'emergency_fund', 'retirement', 'custom']),
   targetAmount: z.number().positive('Target amount must be positive'),
   currentAmount: z.number().min(0).default(0),
   targetDate: z.date(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
-  monthlyContribution: z.number().min(0).optional(),
+  priority: z.enum(['low', 'medium', 'high']).default('medium'),
   autoContribute: z.boolean().default(false),
+  autoContributeAmount: z.number().min(0).optional(),
+  autoContributeFrequency: z.enum(['weekly', 'biweekly', 'monthly']).optional(),
 });
 
 // Bill Schema
@@ -93,7 +93,7 @@ export const billSchema = z.object({
   isAutoPay: z.boolean().optional(), // Alias for autoPay
   notes: z.string().max(500).optional(),
   paymentMethod: z.enum(['cash', 'card', 'bank_transfer', 'digital_wallet', 'crypto', 'other']).optional(),
-  reminderDays: z.array(z.number().min(1).max(30)).default([3, 7]),
+  reminderDays: z.number().min(0).max(30).optional().default(3), // Changed from array to single number
 });
 
 // Investment Schema
