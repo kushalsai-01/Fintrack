@@ -62,12 +62,31 @@ export function formatRelativeDate(date: Date | string): string {
 /**
  * Format date to display string
  */
-export function formatDate(date: Date | string, format: 'short' | 'medium' | 'long' = 'medium'): string {
+export function formatDate(date: Date | string, format: 'short' | 'medium' | 'long' | 'relative' | 'full' = 'medium'): string {
   const d = new Date(date);
+  
+  // Handle relative format (e.g., "2 hours ago")
+  if (format === 'relative') {
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    
+    // Fall back to short format for older dates
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  
   const optionsMap: Record<string, Intl.DateTimeFormatOptions> = {
     short: { month: 'short' as const, day: 'numeric' as const },
     medium: { month: 'short' as const, day: 'numeric' as const, year: 'numeric' as const },
     long: { weekday: 'long' as const, month: 'long' as const, day: 'numeric' as const, year: 'numeric' as const },
+    full: { weekday: 'long' as const, month: 'long' as const, day: 'numeric' as const, year: 'numeric' as const, hour: 'numeric' as const, minute: 'numeric' as const },
   };
   
   return d.toLocaleDateString('en-US', optionsMap[format]);

@@ -1,5 +1,13 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+// Shared budget member interface
+export interface ISharedBudgetMember {
+  userId: mongoose.Types.ObjectId;
+  role: 'owner' | 'admin' | 'member' | 'viewer';
+  joinedAt: Date;
+  contributionPercent?: number;
+}
+
 export interface IBudget extends Document {
   _id: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
@@ -17,6 +25,11 @@ export interface IBudget extends Document {
   rollover: boolean;
   rolloverAmount: number;
   notes?: string;
+  
+  // Shared budget fields
+  isShared: boolean;
+  sharedWith: ISharedBudgetMember[];
+  
   createdAt: Date;
   updatedAt: Date;
   
@@ -25,6 +38,32 @@ export interface IBudget extends Document {
   percentUsed: number;
   isOverBudget: boolean;
 }
+
+// Shared member schema
+const sharedMemberSchema = new Schema<ISharedBudgetMember>(
+  {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    role: {
+      type: String,
+      enum: ['owner', 'admin', 'member', 'viewer'],
+      default: 'member',
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    contributionPercent: {
+      type: Number,
+      min: 0,
+      max: 100,
+    },
+  },
+  { _id: false }
+);
 
 const budgetSchema = new Schema<IBudget>(
   {
@@ -99,6 +138,15 @@ const budgetSchema = new Schema<IBudget>(
       type: String,
       maxlength: 500,
     },
+    // Shared budget fields
+    isShared: {
+      type: Boolean,
+      default: false,
+    },
+    sharedWith: {
+      type: [sharedMemberSchema],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -132,5 +180,7 @@ budgetSchema.virtual('isOverBudget').get(function () {
 budgetSchema.index({ userId: 1, isActive: 1 });
 budgetSchema.index({ userId: 1, categoryId: 1 });
 budgetSchema.index({ userId: 1, startDate: 1, endDate: 1 });
+budgetSchema.index({ 'sharedWith.userId': 1 }); // Index for shared budget lookups
+budgetSchema.index({ isShared: 1, 'sharedWith.userId': 1 });
 
 export const Budget = mongoose.model<IBudget>('Budget', budgetSchema);

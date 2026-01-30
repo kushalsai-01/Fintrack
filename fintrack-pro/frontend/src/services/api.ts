@@ -144,6 +144,16 @@ export const api = {
   put: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) => request<T>('put', url, data, config),
   patch: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) => request<T>('patch', url, data, config),
   delete: <T>(url: string, config?: AxiosRequestConfig) => request<T>('delete', url, undefined, config),
+  
+  /**
+   * Download file as blob
+   */
+  downloadFile: async (url: string): Promise<Blob> => {
+    const response = await apiClient.get(url, {
+      responseType: 'blob',
+    });
+    return new Blob([response.data]);
+  },
 };
 
 /**

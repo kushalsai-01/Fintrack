@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 
 from app.config import settings
-from app.routers import forecast, anomaly, insights, category, health, goals
+from app.routers import forecast, anomaly, insights, category, health, goals, ocr
 
 
 # Configure logging
@@ -78,6 +78,7 @@ app.include_router(insights.router, prefix="/insights", tags=["Financial Insight
 app.include_router(category.router, prefix="/category", tags=["Category Prediction"])
 app.include_router(health.router, prefix="/health", tags=["Financial Health"])
 app.include_router(goals.router, prefix="/goals", tags=["Goal Analysis"])
+app.include_router(ocr.router, prefix="/ocr", tags=["Receipt OCR"])
 
 
 # Root endpoint
@@ -96,7 +97,8 @@ async def root():
             "anomaly": "/anomaly",
             "insights": "/insights",
             "category": "/category",
-            "goals": "/goals"
+            "goals": "/goals",
+            "ocr": "/ocr"
         }
     }
 

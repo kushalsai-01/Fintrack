@@ -178,9 +178,9 @@ export default function Budgets() {
 
   const handleEdit = (budget: Budget) => {
     setEditingBudget(budget);
-    setValue('name', budget.name);
+    setValue('name', budget.name || '');
     setValue('amount', budget.amount);
-    setValue('category', budget.category.id);
+    setValue('category', budget.category?.id || '');
     setValue('period', budget.period);
     setValue('alertThreshold', budget.alertThreshold || 80);
     setIsDialogOpen(true);

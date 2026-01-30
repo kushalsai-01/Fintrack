@@ -6,17 +6,57 @@ import { connectDatabase } from './config/database.js';
 import { connectRedis } from './config/redis.js';
 import { logger } from './utils/logger.js';
 import { verifyAccessToken } from './utils/jwt.js';
+import { 
+  validateEnvironment, 
+  checkMLServiceHealth, 
+  logValidationResults, 
+  setFeatureFlags 
+} from './utils/validateEnv.js';
 
 // Cron jobs
 import { scheduleJobs } from './jobs/index.js';
 
 const startServer = async (): Promise<void> => {
   try {
+    // ===============================
+    // PHASE 1: Validate Environment
+    // ===============================
+    logger.info('🔍 Validating environment configuration...');
+    const { validation, features } = await validateEnvironment();
+    
+    // Log validation results
+    logValidationResults(validation, features);
+
+    // Fail in production if critical errors
+    if (!validation.isValid && config.isProduction) {
+      logger.error('❌ Server cannot start due to configuration errors.');
+      process.exit(1);
+    }
+
+    // Store feature flags for runtime access
+    setFeatureFlags(features);
+
+    // ===============================
+    // PHASE 2: Connect to Databases
+    // ===============================
     // Connect to database
     await connectDatabase();
 
     // Connect to Redis
     await connectRedis();
+
+    // ===============================
+    // PHASE 3: Check External Services
+    // ===============================
+    // Check ML service health (non-blocking)
+    const mlHealthy = await checkMLServiceHealth();
+    if (!mlHealthy) {
+      logger.warn('⚠️  ML Service is not reachable. AI features may be limited.');
+      features.mlService = false;
+      setFeatureFlags(features);
+    } else {
+      logger.info('✅ ML Service: Connected');
+    }
 
     // Create Express app
     const app = createApp();

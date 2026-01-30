@@ -123,20 +123,13 @@ export const debtSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
-// Report Schema
+// Report Schema - matches the form in Reports.tsx
 export const reportSchema = z.object({
-  name: z.string().min(1, 'Report name is required').max(100),
-  type: z.enum(['monthly', 'quarterly', 'annual', 'tax', 'custom']),
+  name: z.string().min(1, 'Report name is required').max(100).optional(),
+  type: z.enum(['monthly', 'category', 'trends', 'tax', 'goals', 'quarterly', 'annual', 'custom']),
   format: z.enum(['pdf', 'excel', 'csv']),
-  dateRange: z.object({
-    start: z.date(),
-    end: z.date(),
-  }),
-  sections: z.array(z.object({
-    type: z.enum(['summary', 'transactions', 'categories', 'trends', 'goals', 'investments']),
-    enabled: z.boolean(),
-    options: z.record(z.unknown()).optional(),
-  })),
+  startDate: z.string().min(1, 'Start date is required'),
+  endDate: z.string().min(1, 'End date is required'),
 });
 
 // User Settings Schema

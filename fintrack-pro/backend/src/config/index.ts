@@ -86,8 +86,8 @@ export const config = {
   },
 
   // URLs
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(','),
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3001',
+  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001,http://localhost:3002').split(',').map(origin => origin.trim()),
 
   // File Upload
   upload: {

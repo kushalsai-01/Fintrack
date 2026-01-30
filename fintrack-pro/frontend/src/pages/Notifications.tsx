@@ -45,31 +45,47 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { useNotificationStore } from '@/stores/notificationStore';
 import api from '@/services/api';
 import { cn, formatDate } from '@/lib/utils';
-import type { Notification } from '@shared/types';
+import type { Notification, NotificationType } from '@shared/types';
 
-// Notification Icon Map
-const NOTIFICATION_ICONS: Record<Notification['type'], React.ElementType> = {
+// Notification Icon Map - covers all NotificationType values
+const NOTIFICATION_ICONS: Record<NotificationType, React.ElementType> = {
   success: Check,
   info: Lightbulb,
   warning: AlertTriangle,
   error: Shield,
   bill: CreditCard,
+  bill_reminder: CreditCard,
   goal: Target,
+  goal_milestone: Target,
   achievement: Gift,
+  achievement_earned: Gift,
   insight: TrendingUp,
+  ai_insight: TrendingUp,
   anomaly: AlertTriangle,
+  anomaly_detected: AlertTriangle,
+  budget_alert: AlertTriangle,
+  health_score_change: TrendingUp,
+  system: Lightbulb,
 };
 
-const NOTIFICATION_COLORS: Record<Notification['type'], string> = {
+const NOTIFICATION_COLORS: Record<NotificationType, string> = {
   success: 'text-green-600 bg-green-500/10',
   info: 'text-blue-600 bg-blue-500/10',
   warning: 'text-amber-600 bg-amber-500/10',
   error: 'text-red-600 bg-red-500/10',
   bill: 'text-purple-600 bg-purple-500/10',
+  bill_reminder: 'text-purple-600 bg-purple-500/10',
   goal: 'text-emerald-600 bg-emerald-500/10',
+  goal_milestone: 'text-emerald-600 bg-emerald-500/10',
   achievement: 'text-yellow-600 bg-yellow-500/10',
+  achievement_earned: 'text-yellow-600 bg-yellow-500/10',
   insight: 'text-cyan-600 bg-cyan-500/10',
+  ai_insight: 'text-cyan-600 bg-cyan-500/10',
   anomaly: 'text-orange-600 bg-orange-500/10',
+  anomaly_detected: 'text-orange-600 bg-orange-500/10',
+  budget_alert: 'text-red-600 bg-red-500/10',
+  health_score_change: 'text-teal-600 bg-teal-500/10',
+  system: 'text-gray-600 bg-gray-500/10',
 };
 
 export default function Notifications() {

@@ -195,7 +195,7 @@ export default function Reports() {
 
   // Group reports by status
   const completedReports = reports?.filter((r) => r.status === 'completed') || [];
-  const pendingReports = reports?.filter((r) => r.status === 'pending' || r.status === 'processing') || [];
+  const pendingReports = reports?.filter((r) => r.status === 'pending' || r.status === 'generating') || [];
 
   if (isLoading) {
     return (

@@ -11,7 +11,6 @@ export interface User {
   avatar?: string;
   monthlyIncome?: number;
   preferredCurrency: string;
-  currency?: string; // Alias for preferredCurrency
   timezone: string;
   settings: UserSettings;
   gamification: GamificationData;
@@ -666,25 +665,18 @@ export interface Notification {
   read?: boolean; // Alias for isRead
   readAt?: Date;
   actionUrl?: string;
-  actionLabel?: string;
-  archived?: boolean;
   createdAt: Date | string;
 }
 
 export type NotificationType = 
   | 'budget_alert'
   | 'bill_reminder'
-  | 'bill'
   | 'goal_milestone'
-  | 'goal'
   | 'anomaly_detected'
-  | 'anomaly'
   | 'health_score_change'
   | 'achievement_earned'
-  | 'achievement'
   | 'system'
   | 'ai_insight'
-  | 'insight'
   | 'success'
   | 'warning'
   | 'error'

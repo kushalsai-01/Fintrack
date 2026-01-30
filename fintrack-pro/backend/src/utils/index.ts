@@ -3,6 +3,8 @@ export * from './logger.js';
 export * from './jwt.js';
 export * from './errors.js';
 export * from './email.js';
+export * from './validateEnv.js';
+export * from './mlService.js';
 
 // Format currency
 export function formatCurrency(amount: number, currency = 'USD'): string {
