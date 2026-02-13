@@ -7,18 +7,64 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
+from pathlib import Path
+import os
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
-from app.routers import forecast, anomaly, insights, category, health, goals, ocr
+from app.routers import forecast, anomaly, insights, category, goals, ocr, health as financial_health
+from app.routers import health_check
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# Configure logging with file rotation
+log_dir = Path("/app/logs")
+log_dir.mkdir(parents=True, exist_ok=True)
+
+log_level = logging.DEBUG if settings.DEBUG else logging.INFO
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Create formatters
+formatter = logging.Formatter(log_format)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(log_level)
+console_handler.setFormatter(formatter)
+
+# File handler for all logs (rotating, max 10MB, keep 5 files)
+file_handler = RotatingFileHandler(
+    log_dir / "ml-service.log",
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5
 )
+file_handler.setLevel(log_level)
+file_handler.setFormatter(formatter)
+
+# Error-only file handler
+error_handler = RotatingFileHandler(
+    log_dir / "ml-service-error.log",
+    maxBytes=10 * 1024 * 1024,  # 10MB
+    backupCount=5
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(formatter)
+
+# Configure root logger
+logging.basicConfig(
+    level=log_level,
+    format=log_format,
+    handlers=[console_handler, file_handler, error_handler]
+)
+
 logger = logging.getLogger(__name__)
+logger.info(f"📂 Logging to {log_dir}")
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 
 @asynccontextmanager
@@ -29,7 +75,43 @@ async def lifespan(app: FastAPI):
     logger.info(f"📊 MongoDB: {settings.MONGODB_URI}")
     logger.info(f"🔴 Redis: {settings.REDIS_URL}")
     
-    # Initialize ML models (lazy loading)
+    # Check and train ML models if missing
+    logger.info("🔍 Checking ML models...")
+    try:
+        import os
+        from pathlib import Path
+        
+        model_dir = Path(os.getenv("MODEL_DIR", "/app/models"))
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
+        required_models = ['category_model.pkl', 'anomaly_model.pkl', 'forecast_config.pkl']
+        missing_models = [m for m in required_models if not (model_dir / m).exists()]
+        
+        if missing_models:
+            logger.warning(f"⚠️  Missing models: {missing_models}")
+            logger.info("🔧 Training models on first startup...")
+            
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["python", "scripts/train_models.py"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0:
+                    logger.info("✅ Models trained successfully")
+                else:
+                    logger.warning(f"⚠️  Model training had issues: {result.stderr}")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not auto-train models: {e}")
+                logger.info("   Run manually: python scripts/train_models.py")
+        else:
+            logger.info(f"✅ All models found in {model_dir}")
+    except Exception as e:
+        logger.warning(f"⚠️  Model check failed: {e}")
+    
     yield
     
     # Shutdown
@@ -45,6 +127,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Add rate limiter to app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware
 app.add_middleware(
@@ -76,9 +162,10 @@ app.include_router(forecast.router, prefix="/forecast", tags=["Forecasting"])
 app.include_router(anomaly.router, prefix="/anomaly", tags=["Anomaly Detection"])
 app.include_router(insights.router, prefix="/insights", tags=["Financial Insights"])
 app.include_router(category.router, prefix="/category", tags=["Category Prediction"])
-app.include_router(health.router, prefix="/health", tags=["Financial Health"])
+app.include_router(financial_health.router, prefix="/financial-health", tags=["Financial Health"])
 app.include_router(goals.router, prefix="/goals", tags=["Goal Analysis"])
 app.include_router(ocr.router, prefix="/ocr", tags=["Receipt OCR"])
+app.include_router(health_check.router, prefix="/health", tags=["Health Check"])
 
 
 # Root endpoint

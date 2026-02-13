@@ -420,6 +420,66 @@ export class AnalyticsService {
       healthScore: health.score,
     };
   }
+
+  // Get category breakdown
+  async getCategoryBreakdown(userId: string, months = 6): Promise<any[]> {
+    const cacheKey = `analytics:${userId}:categories:${months}`;
+    
+    const cached = await cacheGet<any[]>(cacheKey);
+    if (cached) return cached;
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - months);
+
+    const result = await Transaction.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(userId),
+          date: { $gte: startDate, $lte: endDate },
+          type: 'expense',
+        },
+      },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'categoryId',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      {
+        $unwind: {
+          path: '$category',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $group: {
+          _id: '$category.name',
+          total: { $sum: '$amount' },
+          count: { $sum: 1 },
+          color: { $first: '$category.color' },
+          icon: { $first: '$category.icon' },
+        },
+      },
+      {
+        $sort: { total: -1 },
+      },
+    ]);
+
+    const breakdown = result.map((item) => ({
+      category: item._id || 'Uncategorized',
+      total: item.total,
+      count: item.count,
+      color: item.color || '#6B7280',
+      icon: item.icon || 'tag',
+    }));
+
+    await cacheSet(cacheKey, breakdown, 300);
+
+    return breakdown;
+  }
 }
 
 export const analyticsService = new AnalyticsService();

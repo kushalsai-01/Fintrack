@@ -135,15 +135,15 @@ export default function Notifications() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/notifications/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['notifications'], refetchType: 'active' });
     },
   });
 
   const clearAllMutation = useMutation({
     mutationFn: () => api.delete('/notifications/clear'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['notifications'], refetchType: 'active' });
     },
   });
 

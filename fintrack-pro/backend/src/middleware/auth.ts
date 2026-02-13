@@ -3,8 +3,6 @@ import { verifyAccessToken, TokenPayload } from '../utils/jwt.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 import { User } from '../models/index.js';
 import { cacheGet, cacheSet } from '../config/redis.js';
-// Import type augmentation
-import '../types/express.d.js';
 
 // User interface for authenticated requests
 export interface AuthUser extends TokenPayload {

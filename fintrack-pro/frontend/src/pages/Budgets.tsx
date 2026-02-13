@@ -88,8 +88,8 @@ export default function Budgets() {
   // Mutations
   const createMutation = useMutation({
     mutationFn: (data: BudgetFormData) => api.post('/budgets', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['budgets'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['budgets'], refetchType: 'active' });
       setIsDialogOpen(false);
       reset();
       addNotification({
@@ -208,7 +208,10 @@ export default function Budgets() {
 
   // Calculate totals
   const totalBudget = budgets?.reduce((sum, b) => sum + b.amount, 0) || 0;
-  const totalSpent = budgets?.reduce((sum, b) => sum + getCategorySpent(b.category.name), 0) || 0;
+  const totalSpent = budgets?.reduce((sum, b) => {
+    const category = (b as any).category || (b as any).categoryId;
+    return sum + (category?.name ? getCategorySpent(category.name) : 0);
+  }, 0) || 0;
   const totalRemaining = totalBudget - totalSpent;
 
   if (isLoading) {
@@ -298,7 +301,8 @@ export default function Budgets() {
       {budgets && budgets.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {budgets.map((budget) => {
-            const spent = getCategorySpent(budget.category.name);
+            const category = (budget as any).category || (budget as any).categoryId;
+            const spent = category?.name ? getCategorySpent(category.name) : 0;
             const percentage = (spent / budget.amount) * 100;
             const remaining = budget.amount - spent;
             const isOverBudget = percentage > 100;
@@ -372,7 +376,7 @@ export default function Budgets() {
                           isOverBudget ? 'destructive' : isNearLimit ? 'warning' : 'secondary'
                         }
                       >
-                        {budget.category.name}
+                        {category?.name || 'Uncategorized'}
                       </Badge>
                       <span
                         className={cn(

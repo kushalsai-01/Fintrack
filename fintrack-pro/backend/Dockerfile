@@ -33,9 +33,9 @@ RUN npm ci --only=production && npm cache clean --force
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Create uploads directory
-RUN mkdir -p uploads/avatars uploads/receipts uploads/documents && \
-    chown -R nodejs:nodejs uploads
+# Create uploads and logs directories with proper permissions
+RUN mkdir -p uploads/avatars uploads/receipts uploads/documents logs && \
+    chown -R nodejs:nodejs uploads logs
 
 # Switch to non-root user
 USER nodejs

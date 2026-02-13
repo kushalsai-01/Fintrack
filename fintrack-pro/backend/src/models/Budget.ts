@@ -176,6 +176,11 @@ budgetSchema.virtual('isOverBudget').get(function () {
   return this.spent > this.amount + this.rolloverAmount;
 });
 
+// Virtual field to alias categoryId as category for frontend compatibility
+budgetSchema.virtual('category').get(function () {
+  return this.categoryId;
+});
+
 // Indexes
 budgetSchema.index({ userId: 1, isActive: 1 });
 budgetSchema.index({ userId: 1, categoryId: 1 });

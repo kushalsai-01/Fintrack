@@ -73,13 +73,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ml-service:
+        condition: service_healthy
     networks:
       - fintrack-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 40s
 
   # Frontend
   frontend:
@@ -94,24 +97,39 @@ services:
     ports:
       - "3001:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - fintrack-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
   # ML Service (Python)
   ml-service:
     build:
-      context: ./ml-service
+      context: ../ml-service
       dockerfile: Dockerfile
     container_name: fintrack-ml
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       PYTHONUNBUFFERED: 1
-      MODEL_PATH: /app/models
+      MODEL_DIR: /app/models
+      MONGODB_URI: mongodb://fintrack:fintrack123@mongodb:27017/fintrack-pro?authSource=admin
+      REDIS_URL: redis://:fintrack123@redis:6379/1
+      DEBUG: "false"
     volumes:
       - ml_models:/app/models
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - fintrack-network
     healthcheck:
@@ -119,6 +137,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
 
   # Nginx Reverse Proxy (optional - for production)
   nginx:
@@ -132,10 +151,18 @@ services:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./docker/ssl:/etc/nginx/ssl:ro
     depends_on:
-      - frontend
-      - backend
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
     networks:
       - fintrack-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     profiles:
       - production
 

@@ -103,6 +103,13 @@ async def get_income_forecast(
     return await generate_forecast(request)
 
 
+@router.post("/balance")
+async def get_balance_forecast(request: ForecastRequest):
+    """Get balance forecast (income - expenses)."""
+    request.type = "balance"
+    return await generate_forecast(request)
+
+
 @router.get("/balance/{user_id}")
 async def get_balance_forecast(
     user_id: str,

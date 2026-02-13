@@ -6,11 +6,10 @@ import { connectDatabase } from './config/database.js';
 import { connectRedis } from './config/redis.js';
 import { logger } from './utils/logger.js';
 import { verifyAccessToken } from './utils/jwt.js';
+import { validateEnv, checkOptionalIntegrations } from './utils/envValidation.js';
+import { setupGracefulShutdown } from './utils/gracefulShutdown.js';
 import { 
-  validateEnvironment, 
   checkMLServiceHealth, 
-  logValidationResults, 
-  setFeatureFlags 
 } from './utils/validateEnv.js';
 
 // Cron jobs
@@ -22,19 +21,8 @@ const startServer = async (): Promise<void> => {
     // PHASE 1: Validate Environment
     // ===============================
     logger.info('🔍 Validating environment configuration...');
-    const { validation, features } = await validateEnvironment();
-    
-    // Log validation results
-    logValidationResults(validation, features);
-
-    // Fail in production if critical errors
-    if (!validation.isValid && config.isProduction) {
-      logger.error('❌ Server cannot start due to configuration errors.');
-      process.exit(1);
-    }
-
-    // Store feature flags for runtime access
-    setFeatureFlags(features);
+    const env = validateEnv();
+    checkOptionalIntegrations(env);
 
     // ===============================
     // PHASE 2: Connect to Databases
@@ -52,8 +40,6 @@ const startServer = async (): Promise<void> => {
     const mlHealthy = await checkMLServiceHealth();
     if (!mlHealthy) {
       logger.warn('⚠️  ML Service is not reachable. AI features may be limited.');
-      features.mlService = false;
-      setFeatureFlags(features);
     } else {
       logger.info('✅ ML Service: Connected');
     }
@@ -118,7 +104,7 @@ const startServer = async (): Promise<void> => {
     // Schedule cron jobs
     scheduleJobs();
 
-    // Start server
+    // Start server with timeouts
     server.listen(config.port, () => {
       logger.info(`
 ╔══════════════════════════════════════════════════════════════╗
@@ -140,26 +126,13 @@ const startServer = async (): Promise<void> => {
       `);
     });
 
-    // Graceful shutdown
-    const shutdown = async (signal: string): Promise<void> => {
-      logger.info(`${signal} received. Shutting down gracefully...`);
+    // Set server timeouts (prevent hanging requests)
+    server.setTimeout(120000); // 2 minutes
+    server.keepAliveTimeout = 65000; // 65 seconds (should be > load balancer timeout)
+    server.headersTimeout = 66000; // Slightly more than keepAliveTimeout
 
-      server.close(() => {
-        logger.info('HTTP server closed');
-      });
-
-      io.close(() => {
-        logger.info('WebSocket server closed');
-      });
-
-      // Wait for connections to close
-      setTimeout(() => {
-        process.exit(0);
-      }, 5000);
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+    // Setup graceful shutdown handlers
+    setupGracefulShutdown(server);
 
   } catch (error) {
     logger.error('Failed to start server:', error);

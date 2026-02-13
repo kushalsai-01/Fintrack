@@ -2,49 +2,47 @@ import Redis from 'ioredis';
 import { config } from './index.js';
 import { logger } from '../utils/logger.js';
 
-let redis: any = null;
+const redis = new (Redis as any)(config.redis.url, {
+  maxRetriesPerRequest: 3,
+  retryStrategy(times) {
+    const delay = Math.min(times * 50, 2000);
+    return delay;
+  },
+  lazyConnect: true,
+});
+
+redis.on('connect', () => {
+  logger.info('✅ Redis connected successfully');
+});
+
+redis.on('error', (error) => {
+  logger.error('Redis connection error:', error);
+});
+
+redis.on('close', () => {
+  logger.warn('Redis connection closed');
+});
+
+export { redis };
 
 export function getRedis(): any {
-  if (!redis) {
-    redis = new (Redis as any)(config.redis.url, {
-      maxRetriesPerRequest: 3,
-      retryStrategy(times) {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-      lazyConnect: true,
-    });
-
-    redis.on('connect', () => {
-      logger.info('✅ Redis connected successfully');
-    });
-
-    redis.on('error', (error) => {
-      logger.error('Redis connection error:', error);
-    });
-
-    redis.on('close', () => {
-      logger.warn('Redis connection closed');
-    });
-  }
-
   return redis;
 }
 
 export async function connectRedis(): Promise<void> {
   try {
-    const client = getRedis();
-    await client.connect();
+    await redis.connect();
   } catch (error) {
     logger.warn('Redis connection failed, continuing without cache:', error);
   }
 }
 
 export async function disconnectRedis(): Promise<void> {
-  if (redis) {
+  try {
     await redis.quit();
-    redis = null;
     logger.info('Redis connection closed');
+  } catch (error) {
+    logger.warn('Error closing Redis connection:', error);
   }
 }
 

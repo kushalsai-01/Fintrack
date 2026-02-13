@@ -7,6 +7,9 @@ pydantic==2.5.2
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
 
+# Rate limiting
+slowapi==0.1.9
+
 # ML/Data Science
 numpy==1.26.2
 pandas==2.1.3

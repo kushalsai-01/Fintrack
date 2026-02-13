@@ -87,9 +87,12 @@ export default function Transactions() {
   };
 
   // Fetch transactions
-  const { data: transactionsData, isLoading } = useQuery({
+  const { data: transactionsData, isLoading, refetch } = useQuery({
     queryKey: ['transactions', page, searchQuery, typeFilter, categoryFilter, dateRange],
     queryFn: () => api.get<PaginatedResponse<Transaction>>(`/transactions?${buildQueryParams()}`),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
   });
 
   // Fetch categories
@@ -121,9 +124,17 @@ export default function Transactions() {
   // Mutations
   const createMutation = useMutation({
     mutationFn: (data: TransactionFormData) => api.post('/transactions', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] });
+    onSuccess: async () => {
+      // Invalidate and refetch immediately
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['transactions'], refetchType: 'active' }),
+        queryClient.invalidateQueries({ queryKey: ['monthly-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ]);
+      
+      // Force immediate refetch
+      refetch();
+      
       setIsDialogOpen(false);
       reset();
       addNotification({
@@ -152,9 +163,17 @@ export default function Transactions() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: TransactionFormData }) =>
       api.put(`/transactions/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] });
+    onSuccess: async () => {
+      // Invalidate and refetch immediately
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['transactions'], refetchType: 'active' }),
+        queryClient.invalidateQueries({ queryKey: ['monthly-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ]);
+      
+      // Force immediate refetch
+      refetch();
+      
       setIsDialogOpen(false);
       setEditingTransaction(null);
       reset();
@@ -167,20 +186,48 @@ export default function Transactions() {
         read: false,
       });
     },
+    onError: (error: any) => {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to update transaction. Please try again.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/transactions/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['monthly-summary'] });
+    onSuccess: async () => {
+      // Invalidate and refetch immediately
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['transactions'], refetchType: 'active' }),
+        queryClient.invalidateQueries({ queryKey: ['monthly-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ]);
+      
+      // Force immediate refetch
+      refetch();
+      
       setIsDeleteDialogOpen(false);
       setDeletingTransactionId(null);
       addNotification({
         id: Date.now().toString(),
         type: 'success',
         title: 'Transaction deleted',
-        message: 'Your transaction has been deleted.',
+        message: 'Your transaction has been deleted successfully.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+    onError: (error: any) => {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Error',
+        message: 'Failed to delete transaction. Please try again.',
         createdAt: new Date().toISOString(),
         read: false,
       });

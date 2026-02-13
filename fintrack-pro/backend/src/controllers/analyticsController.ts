@@ -63,3 +63,20 @@ export const getHealthScore = asyncHandler(async (req: Request, res: Response) =
     data: { health },
   });
 });
+
+/**
+ * @route GET /api/analytics/categories
+ * @desc Get category breakdown
+ */
+export const getCategoryBreakdown = asyncHandler(async (req: Request, res: Response) => {
+  const { months = 6 } = req.query;
+  const breakdown = await analyticsService.getCategoryBreakdown(
+    req.user!._id,
+    Number(months)
+  );
+
+  res.json({
+    success: true,
+    data: { breakdown },
+  });
+});
