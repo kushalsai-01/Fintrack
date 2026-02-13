@@ -1,96 +1,68 @@
-# ===============================================
-# Node.js / JavaScript / TypeScript
-# ===============================================
+# Dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
 
 # Build outputs
 dist/
 build/
 *.tsbuildinfo
 
-# ===============================================
-# Environment Variables
-# ===============================================
+# Environment
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+.env.production.example
+.env.example
 
-# ===============================================
 # Python
-# ===============================================
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
-venv/
-env/
-ENV/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
+venv/
 *.egg-info/
 .pytest_cache/
 .coverage
 htmlcov/
 
-# ===============================================
-# IDEs / Editors
-# ===============================================
+# IDE
 .vscode/*
 !.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
 !.vscode/extensions.json
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
 
-# ===============================================
-# Docker
-# ===============================================
-*.log
-.dockerignore
-
-# ===============================================
-# Database
-# ===============================================
-*.db
-*.sqlite
-*.sqlite3
-data/
-mongo-data/
-redis-data/
-
-# ===============================================
-# Uploads / User Content
-# ===============================================
-uploads/
-receipts/
-reports/
-temp/
-
-# ===============================================
 # OS
-# ===============================================
-Thumbs.db
 .DS_Store
-*.swp
-*.swo
+Thumbs.db
 
-# ===============================================
+# Docker
+*.log
+
+# Uploads
+uploads/
+
 # Misc
-# ===============================================
 *.bak
 *.tmp
 *.cache
 .cache/
+
+# Documentation & Deployment
+*.ps1
+DEPLOYMENT*.md
+FIXES_APPLIED*.md
+QUICK_REFERENCE.md
+PROJECT_STATUS.md
+RUNNING_NOW.md
+COMPLETE_PROJECT_ANALYSIS.md
+FEATURE_AUDIT.md
+PRODUCTION_READY.md
+LOGIN_FIXED.md
+TYPESCRIPT_ERRORS_FIXED.md
+GOOGLE_OAUTH_SETUP.md
+ENV_SETUP_GUIDE.md
+ENV_VARS.md
+DEPLOYMENT_GUIDE.md
+DEPLOYMENT.md
+
+# Keep only README
+!README.md
