@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { io, Socket } from 'socket.io-client';
 import type { Notification, WebSocketEvent } from '@shared/types';
 import api from '../services/api';
 
@@ -7,8 +8,8 @@ interface NotificationState {
   unreadCount: number;
   isLoading: boolean;
   
-  // WebSocket
-  socket: WebSocket | null;
+  // Socket.IO
+  socket: Socket | null;
   isConnected: boolean;
 
   // Actions
@@ -24,7 +25,7 @@ interface NotificationState {
   addNotification: (notification: Notification) => void;
 }
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:5000';
 
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
@@ -47,7 +48,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
   markAsRead: async (id: string) => {
     try {
-      await api.patch(`/notifications/${id}/read`);
+      await api.put(`/notifications/${id}/read`);
       set((state) => ({
         notifications: state.notifications.map((n) =>
           n.id === id ? { ...n, isRead: true, readAt: new Date() } : n
@@ -61,7 +62,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
   markAllAsRead: async () => {
     try {
-      await api.patch('/notifications/read-all');
+      await api.put('/notifications/read-all');
       set((state) => ({
         notifications: state.notifications.map((n) => ({
           ...n,
@@ -105,45 +106,38 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     const token = localStorage.getItem('accessToken');
     if (!token) return;
 
-    const socket = new WebSocket(`${WS_URL}/ws?token=${token}`);
+    // Use Socket.IO client (matches backend Socket.IO server)
+    const socket = io(WS_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 5000,
+      reconnectionAttempts: 10,
+    });
 
-    socket.onopen = () => {
+    socket.on('connect', () => {
       set({ socket, isConnected: true });
-    };
+    });
 
-    socket.onmessage = (event) => {
-      try {
-        const wsEvent = JSON.parse(event.data) as WebSocketEvent<Notification>;
-        
-        if (wsEvent.type === 'notification') {
-          get().addNotification(wsEvent.payload as Notification);
-        }
-      } catch (error) {
-        console.error('Failed to parse WebSocket message:', error);
-      }
-    };
+    socket.on('notification', (notification: Notification) => {
+      get().addNotification(notification);
+    });
 
-    socket.onclose = () => {
-      set({ socket: null, isConnected: false });
-      
-      // Attempt to reconnect after 5 seconds
-      setTimeout(() => {
-        const currentSocket = get().socket;
-        if (!currentSocket) {
-          get().connect();
-        }
-      }, 5000);
-    };
+    socket.on('disconnect', () => {
+      set({ isConnected: false });
+    });
 
-    socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
+    socket.on('connect_error', (error) => {
+      console.error('Socket.IO connection error:', error.message);
+    });
+
+    set({ socket });
   },
 
   disconnect: () => {
     const { socket } = get();
     if (socket) {
-      socket.close();
+      socket.disconnect();
       set({ socket: null, isConnected: false });
     }
   },
@@ -155,8 +149,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }));
 
     // Show browser notification if permitted
-    if (Notification.permission === 'granted') {
-      new Notification(notification.title, {
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'granted') {
+      new window.Notification(notification.title, {
         body: notification.message,
         icon: '/favicon.svg',
       });

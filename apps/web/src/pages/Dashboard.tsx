@@ -123,9 +123,16 @@ export default function Dashboard() {
   // Fetch health score
   const { data: healthData, isLoading: healthLoading } = useQuery({
     queryKey: ['health-score'],
-    queryFn: () => api.get<{ health: FinancialHealth }>('/health/latest'),
+    queryFn: () => api.get<{ health: { score: number; grade: string; breakdown: any[]; recommendations: string[] } }>('/analytics/health'),
   });
-  const healthScore = healthData?.health;
+  const healthRaw = healthData?.health;
+  // Normalize backend shape to what the UI expects
+  const healthScore = healthRaw ? {
+    overallScore: healthRaw.score,
+    grade: healthRaw.grade,
+    explanation: `Your financial health grade is ${healthRaw.grade}`,
+    recommendations: healthRaw.recommendations.map((r: string, i: number) => ({ id: String(i), title: r })),
+  } : undefined;
 
   // Fetch forecast
   const { data: forecast, isLoading: forecastLoading } = useQuery({

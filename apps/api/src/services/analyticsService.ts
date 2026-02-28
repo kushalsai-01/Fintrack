@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Transaction, Budget, Goal, Bill, Debt, Investment } from '../models/index.js';
+import { Transaction, Budget, Goal, Bill, Debt, Investment, Category } from '../models/index.js';
 import { cacheGet, cacheSet } from '../config/redis.js';
 import { getStartOfMonth, getEndOfMonth, getDateRange } from '../utils/index.js';
 
@@ -9,6 +9,25 @@ interface MonthlySummary {
   expenses: number;
   savings: number;
   savingsRate: number;
+}
+
+interface SingleMonthSummary {
+  month: string;
+  income: number;
+  expense: number;
+  savings: number;
+  savingsRate: number;
+  comparison: {
+    incomeChangePercent: number;
+    expenseChangePercent: number;
+    savingsChangePercent: number;
+  };
+  topCategories: {
+    category: string;
+    amount: number;
+    percentage: number;
+    color: string;
+  }[];
 }
 
 interface TrendData {
@@ -88,6 +107,111 @@ export class AnalyticsService {
     await cacheSet(cacheKey, summary, 300);
 
     return summary;
+  }
+
+  // Get single month summary with comparison and top categories (used by Dashboard)
+  async getSingleMonthSummary(
+    userId: string,
+    year: number,
+    month: number
+  ): Promise<SingleMonthSummary> {
+    const cacheKey = `analytics:${userId}:single:${year}-${month}`;
+    const cached = await cacheGet<SingleMonthSummary>(cacheKey);
+    if (cached) return cached;
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+
+    // Previous month for comparison
+    const prevStartDate = new Date(year, month - 2, 1);
+    const prevEndDate = new Date(year, month - 1, 0, 23, 59, 59, 999);
+
+    const uid = new mongoose.Types.ObjectId(userId);
+
+    // Current month aggregation
+    const [currentData, prevData, categoryData] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { userId: uid, date: { $gte: startDate, $lte: endDate } } },
+        {
+          $group: {
+            _id: null,
+            income: { $sum: { $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0] } },
+            expenses: { $sum: { $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0] } },
+          },
+        },
+      ]),
+      Transaction.aggregate([
+        { $match: { userId: uid, date: { $gte: prevStartDate, $lte: prevEndDate } } },
+        {
+          $group: {
+            _id: null,
+            income: { $sum: { $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0] } },
+            expenses: { $sum: { $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0] } },
+          },
+        },
+      ]),
+      Transaction.aggregate([
+        { $match: { userId: uid, date: { $gte: startDate, $lte: endDate }, type: 'expense' } },
+        {
+          $lookup: {
+            from: 'categories',
+            localField: 'categoryId',
+            foreignField: '_id',
+            as: 'cat',
+          },
+        },
+        { $unwind: { path: '$cat', preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: '$cat.name',
+            amount: { $sum: '$amount' },
+            color: { $first: '$cat.color' },
+          },
+        },
+        { $sort: { amount: -1 } },
+        { $limit: 10 },
+      ]),
+    ]);
+
+    const curr = currentData[0] || { income: 0, expenses: 0 };
+    const prev = prevData[0] || { income: 0, expenses: 0 };
+
+    const income = curr.income;
+    const expense = curr.expenses;
+    const savings = income - expense;
+    const savingsRate = income > 0 ? (savings / income) * 100 : 0;
+
+    const prevSavings = prev.income - prev.expenses;
+
+    const pctChange = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return ((current - previous) / previous) * 100;
+    };
+
+    const totalExpenses = expense || 1; // avoid division by zero
+    const topCategories = categoryData.map((cat: any) => ({
+      category: cat._id || 'Uncategorized',
+      amount: cat.amount,
+      percentage: (cat.amount / totalExpenses) * 100,
+      color: cat.color || '#6B7280',
+    }));
+
+    const result: SingleMonthSummary = {
+      month: `${year}-${String(month).padStart(2, '0')}`,
+      income,
+      expense,
+      savings,
+      savingsRate: Math.round(savingsRate * 10) / 10,
+      comparison: {
+        incomeChangePercent: Math.round(pctChange(income, prev.income) * 10) / 10,
+        expenseChangePercent: Math.round(pctChange(expense, prev.expenses) * 10) / 10,
+        savingsChangePercent: Math.round(pctChange(savings, prevSavings) * 10) / 10,
+      },
+      topCategories,
+    };
+
+    await cacheSet(cacheKey, result, 300);
+    return result;
   }
 
   // Get spending trends

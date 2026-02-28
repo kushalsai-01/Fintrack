@@ -24,7 +24,7 @@ from app.config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(settings.MODEL_PATH if hasattr(settings, 'MODEL_PATH') else "/app/models")
+MODEL_DIR = Path(settings.MODEL_PATH)
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 

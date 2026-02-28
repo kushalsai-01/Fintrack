@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     BACKEND_URL: str = "http://localhost:5000"
     
     # ML Model Settings
+    MODEL_PATH: str = "/app/models"
     FORECAST_HORIZON_DAYS: int = 30
     ANOMALY_CONTAMINATION: float = 0.1
     MIN_DATA_POINTS: int = 10

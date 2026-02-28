@@ -206,12 +206,36 @@ async def health_check():
 @app.get("/readyz")
 async def ready_check():
     """Readiness check endpoint."""
-    # Add checks for dependencies (MongoDB, Redis) here
+    checks = {}
+    
+    # Check ML models
+    model_dir = Path(os.getenv("MODEL_DIR", settings.MODEL_PATH))
+    model_files = list(model_dir.glob("*.pkl")) if model_dir.exists() else []
+    checks["ml_models"] = "loaded" if len(model_files) > 0 else "missing"
+    
+    # Check MongoDB
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        client = AsyncIOMotorClient(settings.MONGODB_URI, serverSelectionTimeoutMS=2000)
+        await client.server_info()
+        checks["database"] = "connected"
+        client.close()
+    except Exception:
+        checks["database"] = "unavailable"
+    
+    # Check Redis
+    try:
+        import redis as redis_lib
+        r = redis_lib.from_url(settings.REDIS_URL, socket_timeout=2)
+        r.ping()
+        checks["cache"] = "connected"
+        r.close()
+    except Exception:
+        checks["cache"] = "unavailable"
+    
+    all_ok = all(v in ("loaded", "connected") for v in checks.values())
+    
     return {
-        "status": "ready",
-        "checks": {
-            "ml_models": "loaded",
-            "database": "connected",
-            "cache": "connected"
-        }
+        "status": "ready" if all_ok else "degraded",
+        "checks": checks
     }

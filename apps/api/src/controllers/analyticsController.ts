@@ -17,20 +17,32 @@ export const getDashboard = asyncHandler(async (req: Request, res: Response) => 
 
 /**
  * @route GET /api/analytics/monthly
- * @desc Get monthly summary
+ * @desc Get monthly summary. Accepts year/month for a single month, or months for a range.
  */
 export const getMonthlySummary = asyncHandler(async (req: Request, res: Response) => {
-  const { months = 12 } = req.query;
+  const { year, month, months = 12 } = req.query;
 
-  const summary = await analyticsService.getMonthlySummary(
-    req.user!._id,
-    Number(months)
-  );
-
-  res.json({
-    success: true,
-    data: { summary },
-  });
+  // If specific year/month requested, get that month + previous for comparison
+  if (year && month) {
+    const summary = await analyticsService.getSingleMonthSummary(
+      req.user!._id,
+      Number(year),
+      Number(month)
+    );
+    res.json({
+      success: true,
+      data: { summary },
+    });
+  } else {
+    const summaryList = await analyticsService.getMonthlySummary(
+      req.user!._id,
+      Number(months)
+    );
+    res.json({
+      success: true,
+      data: { summary: summaryList },
+    });
+  }
 });
 
 /**

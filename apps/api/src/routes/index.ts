@@ -75,8 +75,6 @@ router.use('/debts', debtRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/financial-health', financialHealthRoutes);
-// Compatibility route - redirect old health endpoint to financial-health
-router.use('/health', financialHealthRoutes);
 router.use('/forecast', forecastRoutes);
 router.use('/insights', insightsRoutes);
 router.use('/reports', reportsRoutes);

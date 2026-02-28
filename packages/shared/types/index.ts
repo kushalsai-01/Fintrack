@@ -1,8 +1,3 @@
-// ============================================================================
-// SHARED TYPES - Core Application Types
-// ============================================================================
-
-// User & Authentication Types
 export interface User {
   id: string;
   email: string;

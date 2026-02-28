@@ -40,17 +40,18 @@ const createApiClient = (): AxiosInstance => {
         try {
           const refreshToken = localStorage.getItem('refreshToken');
           if (refreshToken) {
-            const response = await axios.post<ApiResponse<{ accessToken: string; refreshToken: string }>>(
+            const response = await axios.post<ApiResponse<{ tokens: { accessToken: string; refreshToken: string } }>>(
               `${API_BASE_URL}/auth/refresh`,
               { refreshToken }
             );
 
             if (response.data.success && response.data.data) {
-              localStorage.setItem('accessToken', response.data.data.accessToken);
-              localStorage.setItem('refreshToken', response.data.data.refreshToken);
+              const newTokens = response.data.data.tokens;
+              localStorage.setItem('accessToken', newTokens.accessToken);
+              localStorage.setItem('refreshToken', newTokens.refreshToken);
 
               if (originalRequest.headers) {
-                originalRequest.headers.Authorization = `Bearer ${response.data.data.accessToken}`;
+                originalRequest.headers.Authorization = `Bearer ${newTokens.accessToken}`;
               }
 
               return instance(originalRequest);

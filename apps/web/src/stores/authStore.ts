@@ -94,8 +94,8 @@ export const useAuthStore = create<AuthState>()(
 
         set({ isLoading: true });
         try {
-          const user = await api.get<User>('/auth/me');
-          set({ user, isAuthenticated: true, isLoading: false });
+          const response = await api.get<{ user: User }>('/auth/me');
+          set({ user: response.user, isAuthenticated: true, isLoading: false });
         } catch (error) {
           console.error('Failed to fetch user:', error);
           localStorage.removeItem('accessToken');
@@ -107,7 +107,7 @@ export const useAuthStore = create<AuthState>()(
       updateUser: async (data: Partial<User>) => {
         set({ isLoading: true, error: null });
         try {
-          const updatedUser = await api.put<User>('/auth/profile', data);
+          const updatedUser = await api.put<User>('/users/profile', data);
           set({ user: updatedUser, isLoading: false });
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Update failed';
