@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   Lightbulb,
   TrendingUp,
@@ -98,13 +99,14 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 
 export default function Insights() {
   const { addNotification } = useNotificationStore();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'all' | 'opportunities' | 'alerts' | 'achievements'>('all');
   const [typeFilter, setTypeFilter] = useState<Insight['type'] | 'all'>('all');
   const [savedFilter, setSavedFilter] = useState<'all' | 'saved'>('all');
 
   // Fetch insights
   const { data, isLoading } = useQuery({
-    queryKey: ['insights'],
+    queryKey: queryKeys.ml.insights(),
     queryFn: async () => {
       const response = await api.get<{ insights: Insight[]; stats: InsightStats }>('/insights');
       return response;
@@ -141,28 +143,52 @@ export default function Insights() {
   const otherInsights = filteredInsights.filter((i) => i.priority !== 'high');
 
   // Handlers
-  const handleSaveInsight = (insightId: string) => {
-    // API call would go here
-    addNotification({
-      id: Date.now().toString(),
-      type: 'success',
-      title: 'Insight saved',
-      message: 'You can find saved insights in your bookmarks.',
-      createdAt: new Date().toISOString(),
-      read: false,
-    });
+  const handleSaveInsight = async (insightId: string) => {
+    try {
+      await api.post(`/insights/${insightId}/save`, {});
+      addNotification({
+        id: Date.now().toString(),
+        type: 'success',
+        title: 'Insight saved',
+        message: 'Saved. You can now filter by “Saved Only”.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.ml.insights() });
+    } catch (error: any) {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Save failed',
+        message: error?.response?.data?.error?.message || 'Could not save this insight.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    }
   };
 
-  const handleFeedback = (insightId: string, helpful: boolean) => {
-    // API call would go here
-    addNotification({
-      id: Date.now().toString(),
-      type: 'success',
-      title: 'Thanks for your feedback!',
-      message: 'This helps us improve our recommendations.',
-      createdAt: new Date().toISOString(),
-      read: false,
-    });
+  const handleFeedback = async (insightId: string, helpful: boolean) => {
+    try {
+      await api.post(`/insights/${insightId}/feedback`, { helpful });
+      addNotification({
+        id: Date.now().toString(),
+        type: 'success',
+        title: 'Thanks for your feedback!',
+        message: 'This helps improve future recommendations.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.ml.insights() });
+    } catch (error: any) {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Feedback failed',
+        message: error?.response?.data?.error?.message || 'Could not submit feedback.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    }
   };
 
   // Insight Card Component

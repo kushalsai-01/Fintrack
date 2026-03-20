@@ -8,6 +8,7 @@ import { logger } from './utils/logger.js';
 import { verifyAccessToken } from './utils/jwt.js';
 import { validateEnv, checkOptionalIntegrations } from './utils/envValidation.js';
 import { setupGracefulShutdown } from './utils/gracefulShutdown.js';
+import { setSocketIo } from './utils/socket.js';
 import { 
   checkMLServiceHealth, 
 } from './utils/validateEnv.js';
@@ -58,6 +59,7 @@ const startServer = async (): Promise<void> => {
         credentials: true,
       },
     });
+    setSocketIo(io);
 
     // Socket.IO authentication
     io.use((socket, next) => {

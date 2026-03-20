@@ -14,6 +14,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -115,14 +116,14 @@ export default function Dashboard() {
 
   // Fetch monthly summary
   const { data: summaryData, isLoading: summaryLoading } = useQuery({
-    queryKey: ['monthly-summary', currentYear, currentMonth],
+    queryKey: queryKeys.analytics.monthly(currentYear, currentMonth),
     queryFn: () => api.get<{ summary: MonthlySummary }>(`/analytics/monthly?year=${currentYear}&month=${currentMonth}`),
   });
   const summary = summaryData?.summary;
 
   // Fetch health score
   const { data: healthData, isLoading: healthLoading } = useQuery({
-    queryKey: ['health-score'],
+    queryKey: queryKeys.ml.healthScore(),
     queryFn: () => api.get<{ health: { score: number; grade: string; breakdown: any[]; recommendations: string[] } }>('/analytics/health'),
   });
   const healthRaw = healthData?.health;
@@ -136,20 +137,20 @@ export default function Dashboard() {
 
   // Fetch forecast
   const { data: forecast, isLoading: forecastLoading } = useQuery({
-    queryKey: ['forecast'],
+    queryKey: queryKeys.ml.forecast(),
     queryFn: () => api.get<Forecast>('/forecast/latest?forecastType=30day'),
   });
 
   // Fetch goals
   const { data: goalsData, isLoading: goalsLoading } = useQuery({
-    queryKey: ['goals'],
+    queryKey: queryKeys.goals.list('active'),
     queryFn: () => api.get<{ goals: Goal[] }>('/goals?status=active&limit=4'),
   });
   const goals = goalsData?.goals || [];
 
   // Fetch recent transactions
   const { data: transactionsData, isLoading: transactionsLoading } = useQuery({
-    queryKey: ['recent-transactions'],
+    queryKey: queryKeys.transactions.list({ limit: 5 }),
     queryFn: () => api.get<{ transactions: Transaction[]; total: number; page: number; totalPages: number }>('/transactions?limit=5'),
   });
   const recentTransactions = transactionsData?.transactions || [];

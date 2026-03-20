@@ -108,6 +108,7 @@ export class CategoryService {
                 $expr: {
                   $and: [
                     { $eq: ['$categoryId', '$$categoryId'] },
+                    { $eq: ['$deletedAt', null] },
                     { $gte: ['$date', threeMonthsAgo] },
                   ],
                 },
@@ -190,6 +191,7 @@ export class CategoryService {
     const transactionCount = await Transaction.countDocuments({
       categoryId,
       userId,
+      deletedAt: null,
     });
 
     if (transactionCount > 0) {
@@ -217,6 +219,7 @@ export class CategoryService {
         $match: {
           userId: new mongoose.Types.ObjectId(userId),
           type,
+          deletedAt: null,
           date: { $gte: startDate, $lte: endDate },
         },
       },

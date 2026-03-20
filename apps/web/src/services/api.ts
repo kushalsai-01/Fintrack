@@ -3,6 +3,22 @@ import type { ApiResponse, ApiError } from '@shared/types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+const getStoredToken = (key: string): string | null => {
+  return localStorage.getItem(key) || sessionStorage.getItem(key);
+};
+
+const setStoredToken = (key: string, value: string, preferLocalStorage: boolean): void => {
+  if (preferLocalStorage) localStorage.setItem(key, value);
+  else sessionStorage.setItem(key, value);
+};
+
+const clearStoredTokens = (): void => {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('refreshToken');
+};
+
 /**
  * Create axios instance with default configuration
  */
@@ -15,10 +31,13 @@ const createApiClient = (): AxiosInstance => {
     },
   });
 
+  // Prevent multiple simultaneous refresh calls.
+  let refreshInFlight: Promise<void> | null = null;
+
   // Request interceptor - add auth token
   instance.interceptors.request.use(
     (config) => {
-      const token = localStorage.getItem('accessToken');
+      const token = getStoredToken('accessToken');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -38,29 +57,51 @@ const createApiClient = (): AxiosInstance => {
         originalRequest._retry = true;
 
         try {
-          const refreshToken = localStorage.getItem('refreshToken');
-          if (refreshToken) {
-            const response = await axios.post<ApiResponse<{ tokens: { accessToken: string; refreshToken: string } }>>(
-              `${API_BASE_URL}/auth/refresh`,
-              { refreshToken }
-            );
-
-            if (response.data.success && response.data.data) {
-              const newTokens = response.data.data.tokens;
-              localStorage.setItem('accessToken', newTokens.accessToken);
-              localStorage.setItem('refreshToken', newTokens.refreshToken);
-
-              if (originalRequest.headers) {
-                originalRequest.headers.Authorization = `Bearer ${newTokens.accessToken}`;
-              }
-
-              return instance(originalRequest);
-            }
+          const localRefresh = localStorage.getItem('refreshToken');
+          const sessionRefresh = sessionStorage.getItem('refreshToken');
+          const refreshToken = localRefresh || sessionRefresh;
+          if (!refreshToken) {
+            clearStoredTokens();
+            window.location.href = '/login';
+            return Promise.reject(error);
           }
+
+          if (!refreshInFlight) {
+            const preferLocalStorage = Boolean(localRefresh);
+            refreshInFlight = (async () => {
+              const response = await axios.post<
+                ApiResponse<{ tokens: { accessToken: string; refreshToken: string } }>
+              >(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+
+              if (response.data.success && response.data.data) {
+                const newTokens = response.data.data.tokens;
+                setStoredToken('accessToken', newTokens.accessToken, preferLocalStorage);
+                setStoredToken('refreshToken', newTokens.refreshToken, preferLocalStorage);
+              } else {
+                throw new Error('Refresh failed');
+              }
+            })()
+              .catch((refreshError) => {
+                clearStoredTokens();
+                window.location.href = '/login';
+                throw refreshError;
+              })
+              .finally(() => {
+                refreshInFlight = null;
+              });
+          }
+
+          await refreshInFlight;
+
+          const newAccessToken = getStoredToken('accessToken');
+          if (newAccessToken && originalRequest.headers) {
+            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          }
+
+          return instance(originalRequest);
         } catch (refreshError) {
           // Refresh failed - logout user
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
+          clearStoredTokens();
           window.location.href = '/login';
           return Promise.reject(refreshError);
         }

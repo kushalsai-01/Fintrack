@@ -77,14 +77,17 @@ export const Category = mongoose.model<ICategory>('Category', categorySchema);
 // Default categories to create for new users
 export const DEFAULT_CATEGORIES = [
   // Income
+  { name: 'Income', type: 'income', icon: 'briefcase', color: '#10b981' },
   { name: 'Salary', type: 'income', icon: 'briefcase', color: '#10b981' },
   { name: 'Freelance', type: 'income', icon: 'laptop', color: '#3b82f6' },
   { name: 'Investments', type: 'income', icon: 'trending-up', color: '#8b5cf6' },
   { name: 'Other Income', type: 'income', icon: 'plus-circle', color: '#6366f1' },
   
   // Expenses
+  { name: 'Groceries', type: 'expense', icon: 'shopping-cart', color: '#06b6d4' },
   { name: 'Housing', type: 'expense', icon: 'home', color: '#f59e0b' },
   { name: 'Transportation', type: 'expense', icon: 'car', color: '#ef4444' },
+  { name: 'Transport', type: 'expense', icon: 'car', color: '#ef4444' },
   { name: 'Food & Dining', type: 'expense', icon: 'utensils', color: '#ec4899' },
   { name: 'Shopping', type: 'expense', icon: 'shopping-cart', color: '#06b6d4' },
   { name: 'Entertainment', type: 'expense', icon: 'film', color: '#f97316' },
@@ -93,6 +96,9 @@ export const DEFAULT_CATEGORIES = [
   { name: 'Utilities', type: 'expense', icon: 'zap', color: '#eab308' },
   { name: 'Insurance', type: 'expense', icon: 'shield', color: '#64748b' },
   { name: 'Personal Care', type: 'expense', icon: 'user', color: '#a855f7' },
+  { name: 'Subscriptions', type: 'expense', icon: 'repeat', color: '#8b5cf6' },
   { name: 'Travel', type: 'expense', icon: 'plane', color: '#0ea5e9' },
+  { name: 'Transfer', type: 'expense', icon: 'arrow-right-circle', color: '#60a5fa' },
+  { name: 'Other', type: 'expense', icon: 'more-horizontal', color: '#78716c' },
   { name: 'Other Expenses', type: 'expense', icon: 'more-horizontal', color: '#78716c' },
 ] as const;

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken, TokenPayload } from '../utils/jwt.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 import { User } from '../models/index.js';
-import { cacheGet, cacheSet } from '../config/redis.js';
+import { cacheGet, cacheSet, redis } from '../config/redis.js';
 
 // User interface for authenticated requests
 export interface AuthUser extends TokenPayload {
@@ -25,6 +25,17 @@ export const authenticate = async (
     }
 
     const token = authHeader.split(' ')[1];
+
+    // Check token blacklist (set on logout)
+    try {
+      const blacklisted = await redis.get(`blacklist:${token}`);
+      if (blacklisted) {
+        throw new UnauthorizedError('Token has been revoked');
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw err;
+      // Redis unavailable — allow through (fail open for availability)
+    }
 
     const payload = verifyAccessToken(token);
 

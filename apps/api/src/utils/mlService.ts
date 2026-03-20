@@ -25,6 +25,17 @@ export interface MLServiceResponse<T> {
   };
 }
 
+interface MLCategorizationPrediction {
+  predicted_category: string;
+  confidence: number;
+  alternatives: Array<Record<string, number>>;
+}
+
+interface MLCategorizationPredictionResponse {
+  success: boolean;
+  prediction: MLCategorizationPrediction;
+}
+
 /**
  * Get ML service base URL
  */
@@ -158,7 +169,8 @@ export async function getForecast(
 ): Promise<MLServiceResponse<unknown>> {
   return callMLService('/forecast/balance', 'POST', {
     user_id: userId,
-    days,
+    // ML service expects `horizon_days` for forecast horizon.
+    horizon_days: days,
   });
 }
 
@@ -180,12 +192,51 @@ export async function detectAnomalies(
  */
 export async function predictCategory(
   description: string,
-  amount: number
-): Promise<MLServiceResponse<{ category: string; confidence: number }>> {
-  return callMLService('/category/predict', 'POST', {
-    description,
-    amount,
+  amount: number,
+  merchant?: string
+): Promise<
+  MLServiceResponse<{
+    category: string;
+    confidence: number;
+    alternatives: { category: string; confidence: number }[];
+  }>
+> {
+  const resp = await callMLService<MLCategorizationPredictionResponse>(
+    '/category/predict',
+    'POST',
+    {
+      description,
+      amount,
+      merchant,
+    }
+  );
+
+  if (!resp.success || !resp.data) {
+    return {
+      success: false,
+      error: resp.error ?? {
+        code: 'ML_CATEGORY_PREDICTION_FAILED',
+        message: 'Failed to get category prediction from ML service',
+      },
+    };
+  }
+
+  const prediction = resp.data.prediction;
+
+  const alternatives = (prediction.alternatives || []).map((alt) => {
+    const entries = Object.entries(alt);
+    const [category, confidence] = entries[0] || ['', 0];
+    return { category, confidence };
   });
+
+  return {
+    success: true,
+    data: {
+      category: prediction.predicted_category,
+      confidence: prediction.confidence,
+      alternatives,
+    },
+  };
 }
 
 /**
@@ -195,7 +246,8 @@ export async function getHealthScore(
   userId: string,
   metrics: Record<string, unknown>
 ): Promise<MLServiceResponse<unknown>> {
-  return callMLService(`/health/${userId}`, 'POST', metrics);
+  // ML service exposes financial health under `/financial-health/{user_id}`
+  return callMLService(`/financial-health/${userId}`, 'POST', metrics);
 }
 
 /**

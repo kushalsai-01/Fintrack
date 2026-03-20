@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   Send,
   Bot,
@@ -91,17 +92,17 @@ export default function AIAdvisor() {
 
   // Fetch context data
   const { data: summary } = useQuery({
-    queryKey: ['monthly-summary'],
+    queryKey: queryKeys.analytics.monthly(new Date().getFullYear(), new Date().getMonth() + 1),
     queryFn: () => api.get<MonthlySummary>('/analytics/monthly'),
   });
 
   const { data: healthScore } = useQuery({
-    queryKey: ['health-score'],
-    queryFn: () => api.get<FinancialHealth>('/health/latest'),
+    queryKey: queryKeys.ml.healthScore(),
+    queryFn: () => api.get<FinancialHealth>('/financial-health/latest'),
   });
 
   const { data: goals } = useQuery({
-    queryKey: ['goals'],
+    queryKey: queryKeys.goals.list('active'),
     queryFn: () => api.get<Goal[]>('/goals?status=active'),
   });
 

@@ -64,6 +64,19 @@ export const getSummary = asyncHandler(async (req: Request, res: Response) => {
 });
 
 /**
+ * @route GET /api/budgets/status
+ * @desc Get per-budget status/grade for UI
+ */
+export const getStatus = asyncHandler(async (req: Request, res: Response) => {
+  const status = await budgetService.getStatus(req.user!._id);
+
+  res.json({
+    success: true,
+    data: status,
+  });
+});
+
+/**
  * @route GET /api/budgets/:id
  * @desc Get budget by ID
  */

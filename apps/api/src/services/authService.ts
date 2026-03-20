@@ -14,7 +14,8 @@ import {
 } from '../utils/errors.js';
 import { sendPasswordResetEmail, sendWelcomeEmail } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { cacheSet, cacheDel } from '../config/redis.js';
+import { cacheSet, cacheDel, cacheGet } from '../config/redis.js';
+import { config } from '../config/index.js';
 
 interface RegisterInput {
   email: string;
@@ -34,6 +35,51 @@ interface AuthResponse {
 }
 
 export class AuthService {
+  private parseDurationToSeconds(input: string): number {
+    const raw = input.trim().toLowerCase();
+    const numericOnly = raw.match(/^(\d+)$/);
+    if (numericOnly) return parseInt(numericOnly[1], 10);
+
+    const match = raw.match(/^(\d+)\s*(d|h|m)$/);
+    if (!match) return 30 * 24 * 60 * 60; // default 30d
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+
+    switch (unit) {
+      case 'd':
+        return value * 24 * 60 * 60;
+      case 'h':
+        return value * 60 * 60;
+      case 'm':
+        return value * 60;
+      default:
+        return 30 * 24 * 60 * 60;
+    }
+  }
+
+  private async storeRefreshTokenMappings(
+    userId: string,
+    refreshToken: string
+  ): Promise<void> {
+    const ttlSeconds = this.parseDurationToSeconds(config.jwt.refreshExpiresIn);
+    await cacheSet(`refreshToken:${refreshToken}`, userId, ttlSeconds);
+    await cacheSet(`refreshToken:user:${userId}`, refreshToken, ttlSeconds);
+  }
+
+  private async clearRefreshTokenMappings(
+    userId: string,
+    refreshToken?: string
+  ): Promise<void> {
+    const token =
+      refreshToken || (await cacheGet<string>(`refreshToken:user:${userId}`));
+
+    await cacheDel(`refreshToken:user:${userId}`);
+    if (token) {
+      await cacheDel(`refreshToken:${token}`);
+    }
+  }
+
   // Register new user
   async register(input: RegisterInput): Promise<AuthResponse> {
     const { email, password, firstName, lastName } = input;
@@ -64,6 +110,7 @@ export class AuthService {
     // Save refresh token
     user.refreshToken = tokens.refreshToken;
     await user.save();
+    await this.storeRefreshTokenMappings(user._id.toString(), tokens.refreshToken);
 
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email, firstName).catch((err) =>
@@ -105,6 +152,7 @@ export class AuthService {
     user.refreshToken = tokens.refreshToken;
     user.lastLoginAt = new Date();
     await user.save();
+    await this.storeRefreshTokenMappings(user._id.toString(), tokens.refreshToken);
 
     logger.info(`User logged in: ${email}`);
 
@@ -160,6 +208,7 @@ export class AuthService {
     user.refreshToken = tokens.refreshToken;
     user.lastLoginAt = new Date();
     await user.save();
+    await this.storeRefreshTokenMappings(user._id.toString(), tokens.refreshToken);
 
     logger.info(`OAuth login: ${profile.email} via ${provider}`);
 
@@ -171,6 +220,17 @@ export class AuthService {
     try {
       const payload = verifyRefreshToken(refreshToken);
 
+      // Ensure refresh token is still active in Redis.
+      const mappedUserId = await cacheGet<string>(`refreshToken:${refreshToken}`);
+      if (!mappedUserId || mappedUserId !== payload.userId) {
+        throw new UnauthorizedError('Invalid refresh token');
+      }
+
+      const mappedRefreshToken = await cacheGet<string>(`refreshToken:user:${payload.userId}`);
+      if (!mappedRefreshToken || mappedRefreshToken !== refreshToken) {
+        throw new UnauthorizedError('Invalid refresh token');
+      }
+
       const user = await User.findById(payload.userId).select('+refreshToken');
       if (!user || user.refreshToken !== refreshToken) {
         throw new UnauthorizedError('Invalid refresh token');
@@ -178,8 +238,12 @@ export class AuthService {
 
       const tokens = this.generateTokens(user);
 
+      // Rotate refresh token mappings.
+      await this.clearRefreshTokenMappings(payload.userId, refreshToken);
+
       user.refreshToken = tokens.refreshToken;
       await user.save();
+      await this.storeRefreshTokenMappings(user._id.toString(), tokens.refreshToken);
 
       return tokens;
     } catch (error) {
@@ -189,8 +253,9 @@ export class AuthService {
 
   // Logout
   async logout(userId: string): Promise<void> {
+    await this.clearRefreshTokenMappings(userId);
     await User.findByIdAndUpdate(userId, { refreshToken: null });
-    await cacheDel(`user:${userId}`);
+    await cacheDel(`user:auth:${userId}`);
     logger.info(`User logged out: ${userId}`);
   }
 
@@ -236,7 +301,11 @@ export class AuthService {
     user.password = newPassword;
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
+    const oldRefreshToken = user.refreshToken;
     user.refreshToken = undefined;
+    if (oldRefreshToken) {
+      await this.clearRefreshTokenMappings(user._id.toString(), oldRefreshToken);
+    }
     await user.save();
 
     logger.info(`Password reset completed: ${user.email}`);

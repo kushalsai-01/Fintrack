@@ -285,6 +285,7 @@ export class GoalService {
           title: `${milestone.percentage}% Milestone Reached! 🎯`,
           message: `You've reached ${milestone.percentage}% of your goal: ${goal.name}`,
           actionUrl: `/goals/${goal._id}`,
+          metadata: { milestone: milestone.percentage },
         });
       }
     }

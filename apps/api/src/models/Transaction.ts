@@ -4,11 +4,14 @@ export interface ITransaction extends Document {
   _id: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
   categoryId: mongoose.Types.ObjectId;
-  type: 'income' | 'expense';
+  // Derived API field (not stored). Populated/populates categoryId -> category name.
+  category?: string;
+  type: 'income' | 'expense' | 'transfer';
   amount: number;
   currency: string;
   description: string;
   date: Date;
+  deletedAt?: Date | null;
   merchant?: string;
   notes?: string;
   tags: string[];
@@ -24,6 +27,12 @@ export interface ITransaction extends Document {
   bankTransactionId?: string;
   isAnomaly: boolean;
   anomalyScore?: number;
+  // Transfer-specific fields
+  transferId?: string;
+  transferDirection?: 'out' | 'in' | null;
+  linkedAccountId?: mongoose.Types.ObjectId;
+  // ML categorization tracking
+  categoryConfirmed: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,7 +53,7 @@ const transactionSchema = new Schema<ITransaction>(
     },
     type: {
       type: String,
-      enum: ['income', 'expense'],
+      enum: ['income', 'expense', 'transfer'],
       required: true,
     },
     amount: {
@@ -110,13 +119,44 @@ const transactionSchema = new Schema<ITransaction>(
       min: 0,
       max: 1,
     },
+    deletedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    // Transfer fields
+    transferId: { type: String, default: null, index: true },
+    transferDirection: { type: String, enum: ['out', 'in', null], default: null },
+    linkedAccountId: { type: Schema.Types.ObjectId, ref: 'Account', default: null },
+    // ML categorization confidence tracking
+    categoryConfirmed: { type: Boolean, default: false },
   },
   {
     timestamps: true,
     toJSON: {
       transform: (_doc, ret) => {
         ret.id = ret._id.toString();
+
+        // Frontend expects `category` (string) but the backend stores/populates `categoryId` (object).
+        // When populated, `categoryId.name` exists.
+        if (ret.categoryId && typeof ret.categoryId === 'object') {
+          const name = (ret.categoryId as unknown as { name?: string }).name;
+          if (typeof name === 'string' && name.length > 0) {
+            ret.category = name;
+          }
+        }
+
         delete ret.__v;
+
+        // Avoid leaking internal populated object shape to clients.
+        delete ret.categoryId;
+        delete ret.deletedAt;
+
+        // Convert linkedAccountId ObjectId to string for clients.
+        if (ret.linkedAccountId) {
+          (ret as Record<string, unknown>).linkedAccountId = ret.linkedAccountId.toString();
+        }
+
         return ret;
       },
     },

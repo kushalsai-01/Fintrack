@@ -1,10 +1,15 @@
 """
 Financial Health Router - Health score calculations
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
+
+from app.config import settings
 
 router = APIRouter()
 
@@ -168,41 +173,143 @@ async def calculate_health_score(user_id: str, metrics: HealthMetrics):
     )
 
 
-@router.get("/{user_id}")
+async def _compute_health_metrics(user_id: str) -> HealthMetrics:
+    """
+    Compute the metrics used by `calculate_health_score` from MongoDB.
+    This removes demo/static behavior and enables real per-user scoring.
+    """
+    client = AsyncIOMotorClient()
+    # Reuse ML service settings (the env-injected ones).
+    client = AsyncIOMotorClient(settings.MONGODB_URI)  # type: ignore[name-defined]
+    db = client[settings.MONGODB_DATABASE]  # type: ignore[name-defined]
+
+    try:
+        now = datetime.utcnow()
+        start = now - timedelta(days=30)
+
+        income = 0.0
+        expenses = 0.0
+        cursor = db.transactions.find(
+            {"userId": ObjectId(user_id), "deletedAt": None, "date": {"$gte": start, "$lte": now}},
+            {"type": 1, "amount": 1},
+        )
+        async for t in cursor:
+            amt = float(t.get("amount", 0.0))
+            typ = t.get("type")
+            if typ == "income":
+                income += amt
+            elif typ == "expense":
+                expenses += amt
+
+        savings = max(0.0, income - expenses)
+
+        # Approximate debt: sum current balance from debts collection if present.
+        total_debt = 0.0
+        debt_cursor = db.debts.find({"userId": ObjectId(user_id)}, {"currentBalance": 1, "originalAmount": 1})
+        async for d in debt_cursor:
+            total_debt += float(d.get("currentBalance") or d.get("originalAmount") or 0.0)
+
+        # Approximate investment ratio using investment current value vs income.
+        investment_value = 0.0
+        inv_cursor = db.investments.find({"userId": ObjectId(user_id)}, {"quantity": 1, "currentPrice": 1})
+        async for inv in inv_cursor:
+            investment_value += float(inv.get("quantity", 0.0)) * float(inv.get("currentPrice", 0.0))
+
+        investment_ratio = 0.0
+        if income > 0:
+            investment_ratio = (investment_value / income) * 100.0
+
+        # Emergency fund and credit utilization are not directly modeled; keep conservative defaults.
+        return HealthMetrics(
+            monthly_income=round(income, 2),
+            monthly_expenses=round(expenses, 2),
+            total_savings=round(savings, 2),
+            total_debt=round(total_debt, 2),
+            emergency_fund=0.0,
+            credit_utilization=0.0,
+            on_time_payments=100,
+            investment_ratio=round(min(investment_ratio, 100), 2),
+        )
+    finally:
+        client.close()
+
+
+@router.get("/{user_id}", response_model=HealthResponse)
 async def get_user_health(user_id: str):
     """Get latest health score for a user."""
-    # In production, fetch from database
-    # Using sample data for demo
-    sample_metrics = HealthMetrics(
-        monthly_income=5000,
-        monthly_expenses=3500,
-        total_savings=15000,
-        total_debt=8000,
-        emergency_fund=10000,
-        credit_utilization=25,
-        on_time_payments=98,
-        investment_ratio=10
-    )
-    return await calculate_health_score(user_id, sample_metrics)
+    metrics = await _compute_health_metrics(user_id)
+    return await calculate_health_score(user_id, metrics)
+
+
+@router.post("/{user_id}", response_model=HealthResponse)
+async def post_user_health(user_id: str, _metrics: Dict[str, Any] = Body(default={})):
+    """
+    Compatibility endpoint: `mlService.ts` calls POST /health/{user_id}.
+    We ignore the incoming payload and compute from DB for consistent output.
+    """
+    metrics = await _compute_health_metrics(user_id)
+    return await calculate_health_score(user_id, metrics)
 
 
 @router.get("/{user_id}/history")
 async def get_health_history(user_id: str, months: int = 6):
     """Get health score history for trends."""
-    # Sample historical data
-    history = []
-    base_score = 72
-    for i in range(months):
-        history.append({
-            "month": f"2024-{12-i:02d}",
-            "score": base_score + i * 1.5,
-            "grade": get_grade(base_score + i * 1.5)
-        })
-    
-    return {
-        "success": True,
-        "user_id": user_id,
-        "history": list(reversed(history)),
-        "trend": "improving",
-        "change": "+9 points over 6 months"
-    }
+    # Compute rolling health scores month-by-month from transactions.
+    # If there isn't enough data, we still return a sensible (lower-confidence) trend.
+    client = AsyncIOMotorClient(settings.MONGODB_URI)  # type: ignore[name-defined]
+    db = client[settings.MONGODB_DATABASE]  # type: ignore[name-defined]
+    try:
+        now = datetime.utcnow()
+        history = []
+        for m in range(months):
+            # Approximate each "month" as 30 days.
+            end = now - timedelta(days=(m * 30))
+            start = end - timedelta(days=30)
+
+            income = 0.0
+            expenses = 0.0
+            cursor = db.transactions.find(
+                {"userId": ObjectId(user_id), "deletedAt": None, "date": {"$gte": start, "$lte": end}},
+                {"type": 1, "amount": 1},
+            )
+            async for t in cursor:
+                amt = float(t.get("amount", 0.0))
+                typ = t.get("type")
+                if typ == "income":
+                    income += amt
+                elif typ == "expense":
+                    expenses += amt
+
+            savings = max(0.0, income - expenses)
+            metrics = HealthMetrics(
+                monthly_income=round(income, 2),
+                monthly_expenses=round(expenses, 2),
+                total_savings=round(savings, 2),
+                total_debt=0.0,
+                emergency_fund=0.0,
+                credit_utilization=0.0,
+                on_time_payments=100,
+                investment_ratio=0.0,
+            )
+
+            resp = await calculate_health_score(user_id, metrics)
+            history.append(
+                {"month": end.strftime("%Y-%m"), "score": resp.overall_score, "grade": resp.grade}
+            )
+
+        history = list(reversed(history))
+        trend = "improving" if history and history[-1]["score"] > history[0]["score"] else "stable"
+        change = (
+            f"{history[-1]['score'] - history[0]['score']:+.0f} points over {months} month(s)"
+            if history
+            else "0 points"
+        )
+        return {
+            "success": True,
+            "user_id": user_id,
+            "history": history,
+            "trend": trend,
+            "change": change,
+        }
+    finally:
+        client.close()

@@ -34,6 +34,28 @@ export const scheduleJobs = (): void => {
     }
   });
 
+  // Budget alerts - Every hour
+  cron.schedule('15 * * * *', async () => {
+    logger.info('Running budget alert notifications job...');
+    try {
+      await budgetService.notifyBudgetAlerts();
+      logger.info('Budget alert notifications processed');
+    } catch (error) {
+      logger.error('Budget alert notifications job failed:', error);
+    }
+  });
+
+  // Bills due in 3 days - Every hour
+  cron.schedule('30 * * * *', async () => {
+    logger.info('Running bill due-soon notifications job...');
+    try {
+      await billService.sendDueInDaysNotifications(3);
+      logger.info('Bill due-soon notifications processed');
+    } catch (error) {
+      logger.error('Bill due-soon notifications job failed:', error);
+    }
+  });
+
   // Process goal auto-contributions - Daily at 6:00 AM
   cron.schedule('0 6 * * *', async () => {
     logger.info('Running goal auto-contributions job...');

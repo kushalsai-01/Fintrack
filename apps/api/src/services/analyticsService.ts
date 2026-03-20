@@ -68,6 +68,7 @@ export class AnalyticsService {
       {
         $match: {
           userId: new mongoose.Types.ObjectId(userId),
+          deletedAt: null,
           date: { $gte: startDate, $lte: endDate },
         },
       },
@@ -131,7 +132,7 @@ export class AnalyticsService {
     // Current month aggregation
     const [currentData, prevData, categoryData] = await Promise.all([
       Transaction.aggregate([
-        { $match: { userId: uid, date: { $gte: startDate, $lte: endDate } } },
+        { $match: { userId: uid, deletedAt: null, date: { $gte: startDate, $lte: endDate } } },
         {
           $group: {
             _id: null,
@@ -141,7 +142,7 @@ export class AnalyticsService {
         },
       ]),
       Transaction.aggregate([
-        { $match: { userId: uid, date: { $gte: prevStartDate, $lte: prevEndDate } } },
+        { $match: { userId: uid, deletedAt: null, date: { $gte: prevStartDate, $lte: prevEndDate } } },
         {
           $group: {
             _id: null,
@@ -151,7 +152,7 @@ export class AnalyticsService {
         },
       ]),
       Transaction.aggregate([
-        { $match: { userId: uid, date: { $gte: startDate, $lte: endDate }, type: 'expense' } },
+        { $match: { userId: uid, deletedAt: null, date: { $gte: startDate, $lte: endDate }, type: 'expense' } },
         {
           $lookup: {
             from: 'categories',
@@ -227,6 +228,7 @@ export class AnalyticsService {
       {
         $match: {
           userId: new mongoose.Types.ObjectId(userId),
+          deletedAt: null,
           date: { $gte: startDate, $lte: endDate },
         },
       },
@@ -269,6 +271,7 @@ export class AnalyticsService {
     const [transactions, budgets, goals, bills, debts, investments] = await Promise.all([
       Transaction.find({
         userId,
+        deletedAt: null,
         date: { $gte: new Date(now.getFullYear(), now.getMonth() - 3, 1) },
       }),
       Budget.find({ userId, isActive: true }),
@@ -493,9 +496,10 @@ export class AnalyticsService {
     const [transactions, recentTransactions, bills, goals, health] = await Promise.all([
       Transaction.find({
         userId,
+        deletedAt: null,
         date: { $gte: startOfMonth, $lte: endOfMonth },
       }),
-      Transaction.find({ userId })
+      Transaction.find({ userId, deletedAt: null })
         .sort({ date: -1 })
         .limit(5)
         .populate('categoryId'),
@@ -560,6 +564,7 @@ export class AnalyticsService {
       {
         $match: {
           userId: new mongoose.Types.ObjectId(userId),
+          deletedAt: null,
           date: { $gte: startDate, $lte: endDate },
           type: 'expense',
         },

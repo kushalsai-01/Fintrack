@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   Plus,
   Target,
@@ -96,7 +97,7 @@ export default function Goals() {
 
   // Fetch goals
   const { data: goalsData, isLoading } = useQuery({
-    queryKey: ['goals'],
+    queryKey: queryKeys.goals.list(),
     queryFn: () => api.get<{ goals: Goal[] }>('/goals'),
   });
   const goals = goalsData?.goals || [];
@@ -128,7 +129,7 @@ export default function Goals() {
   const createMutation = useMutation({
     mutationFn: (data: GoalFormData) => api.post('/goals', data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.goals.all() });
       setIsDialogOpen(false);
       reset();
       addNotification({
@@ -157,7 +158,7 @@ export default function Goals() {
     mutationFn: ({ id, data }: { id: string; data: Partial<GoalFormData> }) =>
       api.put(`/goals/${id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.goals.all() });
       setIsDialogOpen(false);
       setEditingGoal(null);
       reset();
@@ -175,7 +176,7 @@ export default function Goals() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/goals/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.goals.all() });
       setIsDeleteDialogOpen(false);
       setDeletingGoalId(null);
       addNotification({
@@ -193,7 +194,7 @@ export default function Goals() {
     mutationFn: ({ id, amount }: { id: string; amount: number }) =>
       api.post(`/goals/${id}/contribute`, { amount }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.goals.all() });
       setIsContributeDialogOpen(false);
       setContributingGoal(null);
       setContributionAmount('');

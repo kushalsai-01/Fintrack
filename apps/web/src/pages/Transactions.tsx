@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
@@ -35,7 +35,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/DropdownMenu';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useNotificationStore } from '@/stores/notificationStore';
-import api from '@/services/api';
+import api, { uploadFile, downloadFile as downloadFileNamed } from '@/services/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import { transactionSchema, type TransactionFormData } from '@/lib/validations';
 import type { Transaction, Category, PaginatedResponse } from '@shared/types';
@@ -71,6 +71,14 @@ export default function Transactions() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const limit = 10;
+
+  // CSV import/export
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<
+    Array<{ date: string; description: string; category: string; type: string; amount: number; notes: string }>
+  >([]);
+  const [importFile, setImportFile] = useState<File | null>(null);
 
   // Build query params
   const buildQueryParams = () => {
@@ -232,6 +240,140 @@ export default function Transactions() {
     },
   });
 
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => uploadFile<{ createdCount: number; rowErrors: Array<{ row: number; message: string }> }>(
+      '/transactions/bulk',
+      file
+    ),
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['transactions'], refetchType: 'active' }),
+        queryClient.invalidateQueries({ queryKey: ['monthly-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ]);
+      await refetch();
+
+      addNotification({
+        id: Date.now().toString(),
+        type: 'success',
+        title: 'Import complete',
+        message: `Imported ${result.createdCount} transaction(s)${result.rowErrors.length ? ` (${result.rowErrors.length} row(s) skipped)` : ''}.`,
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+
+      setIsImportDialogOpen(false);
+      setImportFile(null);
+      setImportPreview([]);
+    },
+    onError: (error: any) => {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Import failed',
+        message: error?.response?.data?.message || 'Could not import CSV.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    },
+  });
+
+  const handleExport = async () => {
+    try {
+      await downloadFileNamed(`/transactions/export?${buildQueryParams()}`, 'transactions.csv');
+      addNotification({
+        id: Date.now().toString(),
+        type: 'success',
+        title: 'Export ready',
+        message: 'Your transactions CSV has been downloaded.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    } catch (error) {
+      addNotification({
+        id: Date.now().toString(),
+        type: 'error',
+        title: 'Export failed',
+        message: 'Could not export transactions.',
+        createdAt: new Date().toISOString(),
+        read: false,
+      });
+    }
+  };
+
+  const parseCsvPreview = async (file: File) => {
+    const text = await file.text();
+    const rows: string[][] = [];
+    let cur = '';
+    let inQuotes = false;
+    let row: string[] = [];
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const next = text[i + 1];
+
+      if (ch === '"' && inQuotes && next === '"') {
+        cur += '"';
+        i++;
+        continue;
+      }
+
+      if (ch === '"') {
+        inQuotes = !inQuotes;
+        continue;
+      }
+
+      if (ch === ',' && !inQuotes) {
+        row.push(cur.trim());
+        cur = '';
+        continue;
+      }
+
+      if ((ch === '\n' || ch === '\r') && !inQuotes) {
+        if (ch === '\r' && next === '\n') i++;
+        if (cur.length > 0 || row.length > 0) row.push(cur.trim());
+        if (row.length > 0 && !(row.length === 1 && row[0] === '')) rows.push(row);
+        row = [];
+        cur = '';
+        continue;
+      }
+
+      cur += ch;
+    }
+
+    if (cur.length > 0 || row.length > 0) {
+      row.push(cur.trim());
+      if (row.length > 0 && !(row.length === 1 && row[0] === '')) rows.push(row);
+    }
+
+    if (rows.length < 2) return [];
+
+    const header = rows[0].map((h) => h.trim().toLowerCase());
+    const idx = (key: string) => header.indexOf(key);
+
+    const iDate = idx('date');
+    const iDescription = idx('description');
+    const iCategory = idx('category');
+    const iType = idx('type');
+    const iAmount = idx('amount');
+    const iNotes = idx('notes');
+
+    const preview: typeof importPreview = [];
+    for (let r = 1; r < Math.min(rows.length, 6); r++) {
+      const cols = rows[r];
+      const amount = Number(iAmount >= 0 ? cols[iAmount] : 0);
+      preview.push({
+        date: iDate >= 0 ? cols[iDate] : '',
+        description: iDescription >= 0 ? cols[iDescription] : '',
+        category: iCategory >= 0 ? cols[iCategory] : '',
+        type: iType >= 0 ? cols[iType] : '',
+        amount: Number.isFinite(amount) ? amount : 0,
+        notes: iNotes >= 0 ? cols[iNotes] : '',
+      });
+    }
+    return preview;
+  };
+
   // Handlers
   const onSubmit = (data: TransactionFormData) => {
     // category field now contains the categoryId directly
@@ -319,10 +461,34 @@ export default function Transactions() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0] ?? null;
+              if (!file) return;
+              setImportFile(file);
+              const preview = await parseCsvPreview(file);
+              setImportPreview(preview);
+              setIsImportDialogOpen(true);
+              // Allow re-selecting same file
+              e.target.value = '';
+            }}
+          />
+          <Button
+            variant="outline"
+            leftIcon={<Upload className="h-4 w-4" />}
+            onClick={() => fileInputRef.current?.click()}
+          >
             Import
           </Button>
-          <Button variant="outline" leftIcon={<Download className="h-4 w-4" />}>
+          <Button
+            variant="outline"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={handleExport}
+          >
             Export
           </Button>
           <Button leftIcon={<Plus className="h-4 w-4" />} onClick={handleOpenDialog}>
@@ -639,6 +805,72 @@ export default function Transactions() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import CSV Dialog */}
+      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Transactions</DialogTitle>
+            <DialogDescription>
+              Preview the first rows from your CSV. Required headers: `date`, `description`, `amount`, `type`. Optional: `category`, `notes`, `merchant`.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="border rounded-lg p-3 max-h-64 overflow-auto">
+            {importPreview.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No preview available.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 pr-2">Date</th>
+                    <th className="text-left py-2 pr-2">Description</th>
+                    <th className="text-left py-2 pr-2">Category</th>
+                    <th className="text-left py-2 pr-2">Type</th>
+                    <th className="text-right py-2">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importPreview.map((r, idx) => (
+                    <tr key={`${r.date}-${idx}`} className="border-b last:border-b-0">
+                      <td className="py-2 pr-2">{r.date}</td>
+                      <td className="py-2 pr-2">{r.description}</td>
+                      <td className="py-2 pr-2">{r.category}</td>
+                      <td className="py-2 pr-2">{r.type}</td>
+                      <td className="py-2 text-right">{r.amount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setIsImportDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!importFile) {
+                  addNotification({
+                    id: Date.now().toString(),
+                    type: 'error',
+                    title: 'Import failed',
+                    message: 'No file selected.',
+                    createdAt: new Date().toISOString(),
+                    read: false,
+                  });
+                  return;
+                }
+                importMutation.mutate(importFile);
+              }}
+              isLoading={importMutation.isPending}
+            >
+              Import
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

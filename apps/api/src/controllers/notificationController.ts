@@ -125,3 +125,29 @@ export const deleteNotification = asyncHandler(async (req: Request, res: Respons
     message: 'Notification deleted',
   });
 });
+
+/**
+ * @route DELETE /api/notifications
+ * @desc Clear all notifications for current user
+ */
+export const clearAllNotifications = asyncHandler(async (req: Request, res: Response) => {
+  const deletedCount = await notificationService.clearAll(req.user!._id);
+  res.json({
+    success: true,
+    message: 'All notifications cleared',
+    data: { deletedCount },
+  });
+});
+
+/**
+ * @route DELETE /api/notifications/clear
+ * @desc Alias for clearing all notifications (kept for frontend compatibility)
+ */
+export const clearAllNotificationsAlias = asyncHandler(async (req: Request, res: Response) => {
+  const deletedCount = await notificationService.clearAll(req.user!._id);
+  res.json({
+    success: true,
+    message: 'All notifications cleared',
+    data: { deletedCount },
+  });
+});

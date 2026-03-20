@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   Plus,
   Wallet,
@@ -52,21 +53,21 @@ export default function Budgets() {
 
   // Fetch budgets
   const { data: budgetsData, isLoading } = useQuery({
-    queryKey: ['budgets'],
+    queryKey: queryKeys.budgets.list(),
     queryFn: () => api.get<{ budgets: Budget[] }>('/budgets'),
   });
   const budgets = budgetsData?.budgets || [];
 
   // Fetch categories
   const { data: categoriesData } = useQuery({
-    queryKey: ['categories'],
+    queryKey: queryKeys.categories.list(),
     queryFn: () => api.get<{ categories: Category[] }>('/categories'),
   });
   const categories = categoriesData?.categories || [];
 
   // Fetch monthly summary for spending data
   const { data: summary } = useQuery({
-    queryKey: ['monthly-summary'],
+    queryKey: queryKeys.analytics.monthly(new Date().getFullYear(), new Date().getMonth() + 1),
     queryFn: () => api.get<MonthlySummary>('/analytics/monthly'),
   });
 
@@ -89,7 +90,7 @@ export default function Budgets() {
   const createMutation = useMutation({
     mutationFn: (data: BudgetFormData) => api.post('/budgets', data),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['budgets'], refetchType: 'active' });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.budgets.all(), refetchType: 'active' });
       setIsDialogOpen(false);
       reset();
       addNotification({
@@ -118,7 +119,7 @@ export default function Budgets() {
     mutationFn: ({ id, data }: { id: string; data: BudgetFormData }) =>
       api.put(`/budgets/${id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.budgets.all() });
       setIsDialogOpen(false);
       setEditingBudget(null);
       reset();
@@ -136,7 +137,7 @@ export default function Budgets() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/budgets/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.budgets.all() });
       setIsDeleteDialogOpen(false);
       setDeletingBudgetId(null);
       addNotification({

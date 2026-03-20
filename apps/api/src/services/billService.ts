@@ -4,6 +4,7 @@ import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { cacheDelPattern } from '../config/redis.js';
 import { sendBillReminderEmail } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { emitToUser } from '../utils/socket.js';
 
 interface CreateBillInput {
   userId: string;
@@ -13,6 +14,8 @@ interface CreateBillInput {
   frequency: 'one-time' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
   categoryId?: string;
   autopay?: boolean;
+  // Frontend alias (some clients may send this name)
+  isAutoPay?: boolean;
   reminderDays?: number;
   notes?: string;
   website?: string;
@@ -27,6 +30,8 @@ interface UpdateBillInput {
   frequency?: 'one-time' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
   categoryId?: string;
   autopay?: boolean;
+  // Frontend alias
+  isAutoPay?: boolean;
   reminderDays?: number;
   status?: 'upcoming' | 'overdue' | 'paid';
   notes?: string;
@@ -46,8 +51,10 @@ interface PayBillInput {
 export class BillService {
   // Create bill
   async create(input: CreateBillInput): Promise<IBill> {
+    const { autopay, isAutoPay, ...rest } = input;
     const bill = new Bill({
-      ...input,
+      ...rest,
+      autoPay: autopay ?? isAutoPay ?? false,
       status: 'upcoming',
     });
 
@@ -127,7 +134,11 @@ export class BillService {
       throw new NotFoundError('Bill not found');
     }
 
-    Object.assign(bill, updateData);
+    const { autopay, isAutoPay, ...rest } = updateData;
+    Object.assign(bill, rest);
+    if (autopay !== undefined || isAutoPay !== undefined) {
+      bill.autoPay = autopay ?? isAutoPay ?? false;
+    }
     await bill.save();
 
     await cacheDelPattern(`bills:${userId}:*`);
@@ -243,12 +254,22 @@ export class BillService {
         const user = bill.userId as any;
 
         // Create notification
-        await Notification.create({
+        const notification = await Notification.create({
           userId: user._id,
           type: 'bill',
           title: 'Bill Due Soon',
           message: `${bill.name} ($${bill.amount}) is due in ${daysUntilDue} day(s)`,
           actionUrl: `/bills/${bill._id}`,
+        });
+
+        // Emit real-time WebSocket event
+        emitToUser(user._id.toString(), 'bill:reminder', {
+          billId: bill._id,
+          billName: bill.name,
+          amount: bill.amount,
+          daysUntilDue,
+          dueDate: bill.dueDate,
+          notificationId: notification._id,
         });
 
         // Send email
@@ -263,6 +284,61 @@ export class BillService {
 
         logger.info(`Bill reminder sent for: ${bill.name}`);
       }
+    }
+  }
+
+  // Send bill notifications for bills due in `days` (deduped once per day per bill)
+  async sendDueInDaysNotifications(days: number): Promise<void> {
+    const now = new Date();
+
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const targetStart = new Date(now);
+    targetStart.setDate(targetStart.getDate() + days);
+    targetStart.setHours(0, 0, 0, 0);
+
+    const targetEnd = new Date(targetStart);
+    targetEnd.setHours(23, 59, 59, 999);
+
+    const bills = await Bill.find({
+      isActive: true,
+      status: 'upcoming',
+      dueDate: { $gte: targetStart, $lte: targetEnd },
+    });
+
+    for (const bill of bills) {
+      const title = `Bill Due Soon: ${bill.name}`;
+
+      const existingToday = await Notification.findOne({
+        userId: bill.userId,
+        type: 'bill',
+        title,
+        createdAt: { $gte: todayStart, $lte: todayEnd },
+      });
+
+      if (existingToday) continue;
+
+      const notification = await Notification.create({
+        userId: bill.userId,
+        type: 'bill',
+        title,
+        message: `${bill.name} ($${bill.amount}) is due in ${days} day(s)`,
+        actionUrl: `/bills/${bill._id}`,
+      });
+
+      // Emit real-time WebSocket event
+      emitToUser(bill.userId.toString(), 'bill:reminder', {
+        billId: bill._id,
+        billName: bill.name,
+        amount: bill.amount,
+        daysUntilDue: days,
+        dueDate: bill.dueDate,
+        notificationId: notification._id,
+      });
     }
   }
 

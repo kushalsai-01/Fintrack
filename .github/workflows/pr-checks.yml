@@ -1,0 +1,55 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  size-check:
+    name: Bundle size check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: cd apps/web && npm ci
+      - run: cd apps/web && npm run build
+        env:
+          VITE_API_URL: http://localhost:5000/api
+          VITE_WS_URL: ws://localhost:5000
+      - name: Check bundle size
+        run: |
+          SIZE=$(du -sk apps/web/dist | cut -f1)
+          echo "Bundle size: ${SIZE}KB"
+          if [ $SIZE -gt 5000 ]; then
+            echo "::warning::Bundle size ${SIZE}KB exceeds 5MB target"
+          else
+            echo "✅ Bundle size within limit"
+          fi
+
+  api-type-check:
+    name: API TypeScript strict check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - run: cd apps/api && npm ci && npm run build
+
+  web-type-check:
+    name: Web TypeScript strict check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: cd apps/web && npm ci && npm run type-check

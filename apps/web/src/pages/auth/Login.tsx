@@ -12,6 +12,7 @@ import { loginSchema, type LoginFormData } from '@/lib/validations';
 
 export default function Login() {
   const [showPassword, setShowPassword] = React.useState(false);
+  const [rememberMe, setRememberMe] = React.useState(true);
   const { login, isLoading, error, clearError } = useAuthStore();
 
   const {
@@ -29,7 +30,7 @@ export default function Login() {
   const onSubmit = async (data: LoginFormData) => {
     try {
       clearError();
-      await login({ email: data.email, password: data.password });
+      await login({ email: data.email, password: data.password, rememberMe });
       toast.success('Welcome back!');
     } catch (err) {
       toast.error(error || 'Login failed. Please try again.');
@@ -91,7 +92,12 @@ export default function Login() {
 
               <div className="flex items-center justify-between text-sm">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="rounded border-input" />
+                <input
+                  type="checkbox"
+                  className="rounded border-input"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
                   <span className="text-muted-foreground">Remember me</span>
                 </label>
                 <Link

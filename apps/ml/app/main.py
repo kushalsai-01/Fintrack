@@ -16,7 +16,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
-from app.routers import forecast, anomaly, insights, category, goals, ocr, health as financial_health
+from app.routers import forecast, anomaly, insights, category, goals, ocr, health as financial_health, train
 from app.routers import health_check
 
 
@@ -166,6 +166,7 @@ app.include_router(financial_health.router, prefix="/financial-health", tags=["F
 app.include_router(goals.router, prefix="/goals", tags=["Goal Analysis"])
 app.include_router(ocr.router, prefix="/ocr", tags=["Receipt OCR"])
 app.include_router(health_check.router, prefix="/health", tags=["Health Check"])
+app.include_router(train.router, prefix="/train", tags=["Model Training"])
 
 
 # Root endpoint

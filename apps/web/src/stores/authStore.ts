@@ -31,9 +31,15 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const response = await api.post<{ user: User; tokens: AuthTokens }>('/auth/login', credentials);
-          
-          localStorage.setItem('accessToken', response.tokens.accessToken);
-          localStorage.setItem('refreshToken', response.tokens.refreshToken);
+
+          const preferLocalStorage = credentials.rememberMe !== false;
+          if (preferLocalStorage) {
+            localStorage.setItem('accessToken', response.tokens.accessToken);
+            localStorage.setItem('refreshToken', response.tokens.refreshToken);
+          } else {
+            sessionStorage.setItem('accessToken', response.tokens.accessToken);
+            sessionStorage.setItem('refreshToken', response.tokens.refreshToken);
+          }
           
           set({
             user: response.user,
@@ -76,6 +82,8 @@ export const useAuthStore = create<AuthState>()(
         } finally {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
+          sessionStorage.removeItem('accessToken');
+          sessionStorage.removeItem('refreshToken');
           set({
             user: null,
             isAuthenticated: false,
@@ -86,7 +94,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       fetchUser: async () => {
-        const token = localStorage.getItem('accessToken');
+        const token = localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
         if (!token) {
           set({ isAuthenticated: false, user: null, isLoading: false });
           return;
@@ -100,6 +108,8 @@ export const useAuthStore = create<AuthState>()(
           console.error('Failed to fetch user:', error);
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
+          sessionStorage.removeItem('accessToken');
+          sessionStorage.removeItem('refreshToken');
           set({ user: null, isAuthenticated: false, isLoading: false });
         }
       },

@@ -3,11 +3,13 @@ import { Transaction, ITransaction, Budget, Category } from '../models/index.js'
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { cacheGet, cacheSet, cacheDelPattern } from '../config/redis.js';
 import { logger } from '../utils/logger.js';
+import { predictCategory } from '../utils/mlService.js';
+import { emitToUser } from '../utils/socket.js';
 
 interface CreateTransactionInput {
   userId: string;
-  categoryId: string;
-  type: 'income' | 'expense';
+  categoryId?: string;
+  type: 'income' | 'expense' | 'transfer';
   amount: number;
   description: string;
   date: Date;
@@ -17,6 +19,7 @@ interface CreateTransactionInput {
   isRecurring?: boolean;
   recurringId?: string;
   receiptUrl?: string;
+  categoryConfirmed?: boolean;
 }
 
 interface UpdateTransactionInput extends Partial<CreateTransactionInput> {
@@ -25,7 +28,7 @@ interface UpdateTransactionInput extends Partial<CreateTransactionInput> {
 
 interface TransactionFilters {
   userId: string;
-  type?: 'income' | 'expense';
+  type?: 'income' | 'expense' | 'transfer';
   categoryId?: string;
   startDate?: Date;
   endDate?: Date;
@@ -61,26 +64,96 @@ interface TransactionSummary {
 export class TransactionService {
   // Create transaction
   async create(input: CreateTransactionInput): Promise<ITransaction> {
-    // Verify category exists and belongs to user
-    const category = await Category.findOne({
-      _id: input.categoryId,
-      userId: input.userId,
-    });
+    const escapeRegExp = (value: string): string =>
+      value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    if (!category) {
-      throw new NotFoundError('Category not found');
-    }
+    const resolveCategoryByIdOrPrediction = async (): Promise<{
+      categoryId: string;
+      type: 'income' | 'expense';
+    }> => {
+      if (input.categoryId) {
+        const category = await Category.findOne({
+          _id: input.categoryId,
+          userId: input.userId,
+          isActive: true,
+        });
+        if (!category) throw new NotFoundError('Category not found');
+        return { categoryId: category._id.toString(), type: category.type };
+      }
+
+      // If categoryId is not provided, ask ML to predict a category name.
+      // For better "Other" handling, pass signed amount: expenses => negative.
+      const signedAmount = input.type === 'expense' ? -input.amount : input.amount;
+      const mlResp = await predictCategory(
+        input.description,
+        signedAmount,
+        input.merchant
+      );
+
+      // Fallback category name based on confidence.
+      const predictedName =
+        mlResp.success && mlResp.data
+          ? mlResp.data.confidence < 0.6
+            ? 'Other'
+            : mlResp.data.category
+          : 'Other';
+
+      const normalizePredictedCategoryName = (name: string): string => {
+        switch (name) {
+          case 'Dining':
+            return 'Food & Dining';
+          case 'Transportation':
+            return 'Transport';
+          case 'Groceries':
+            return 'Food & Dining';
+          default:
+            return name;
+        }
+      };
+
+      const normalizedName = normalizePredictedCategoryName(predictedName);
+
+      // Resolve predicted name to user's category (case-insensitive).
+      const category = await Category.findOne({
+        userId: input.userId,
+        isActive: true,
+        type: input.type,
+        name: { $regex: new RegExp(`^${escapeRegExp(normalizedName)}$`, 'i') },
+      });
+
+      if (category) {
+        return { categoryId: category._id.toString(), type: category.type };
+      }
+
+      // Last resort: use the first active default category for that type.
+      const fallback = await Category.findOne({
+        userId: input.userId,
+        isActive: true,
+        type: input.type,
+        isDefault: true,
+      });
+
+      if (fallback) {
+        return { categoryId: fallback._id.toString(), type: fallback.type };
+      }
+
+      throw new NotFoundError('No active category available to assign');
+    };
+
+    const { categoryId, type } = await resolveCategoryByIdOrPrediction();
 
     const transaction = new Transaction({
       ...input,
-      type: category.type, // Ensure type matches category
+      categoryId: new mongoose.Types.ObjectId(categoryId),
+      type,
+      categoryConfirmed: input.categoryConfirmed ?? (input.categoryId ? true : false),
     });
 
     await transaction.save();
 
     // Update budget spent amount if expense
     if (transaction.type === 'expense') {
-      await this.updateBudgetSpent(input.userId, input.categoryId, input.amount);
+      await this.updateBudgetSpent(input.userId, transaction.categoryId.toString(), transaction.amount);
     }
 
     // Invalidate cache
@@ -97,6 +170,7 @@ export class TransactionService {
     const transaction = await Transaction.findOne({
       _id: transactionId,
       userId,
+      deletedAt: null,
     }).populate('categoryId');
 
     if (!transaction) {
@@ -119,7 +193,7 @@ export class TransactionService {
     const { page, limit, sortBy = 'date', sortOrder = 'desc' } = pagination;
 
     // Build query
-    const query: Record<string, unknown> = { userId: filters.userId };
+    const query: Record<string, unknown> = { userId: filters.userId, deletedAt: null };
 
     if (filters.type) {
       query.type = filters.type;
@@ -186,38 +260,106 @@ export class TransactionService {
   async update(input: UpdateTransactionInput): Promise<ITransaction> {
     const { id, userId, ...updateData } = input;
 
-    const transaction = await Transaction.findOne({ _id: id, userId });
+    const transaction = await Transaction.findOne({ _id: id, userId, deletedAt: null });
     if (!transaction) {
       throw new NotFoundError('Transaction not found');
     }
 
-    // If category changed, verify new category
+    const oldType = transaction.type;
+    const oldCategoryId = transaction.categoryId.toString();
+    const oldAmount = transaction.amount;
+
+    const effectiveType =
+      typeof updateData.type === 'string' && (updateData.type === 'income' || updateData.type === 'expense')
+        ? updateData.type
+        : transaction.type;
+
+    // Re-run ML categorization if the description changed and no explicit categoryId was provided.
+    const descriptionChanged =
+      typeof updateData.description === 'string' &&
+      updateData.description.trim().length > 0 &&
+      updateData.description !== transaction.description;
+
+    if (descriptionChanged && updateData.categoryId === undefined) {
+      const amountForPrediction =
+        typeof updateData.amount === 'number' ? updateData.amount : transaction.amount;
+      const signedAmount = effectiveType === 'expense' ? -amountForPrediction : amountForPrediction;
+
+      const mlResp = await predictCategory(
+        updateData.description,
+        signedAmount,
+        updateData.merchant
+      );
+
+      const predictedName =
+        mlResp.success && mlResp.data
+          ? mlResp.data.confidence < 0.6
+            ? 'Other'
+            : mlResp.data.category
+          : 'Other';
+
+      const escapeRegExp = (value: string): string =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      const normalizePredictedCategoryName = (name: string): string => {
+        switch (name) {
+          case 'Dining':
+            return 'Food & Dining';
+          case 'Transportation':
+            return 'Transport';
+          case 'Groceries':
+            return 'Food & Dining';
+          default:
+            return name;
+        }
+      };
+
+      const normalizedName = normalizePredictedCategoryName(predictedName);
+
+      const category = await Category.findOne({
+        userId,
+        isActive: true,
+        type: effectiveType,
+        name: { $regex: new RegExp(`^${escapeRegExp(normalizedName)}$`, 'i') },
+      });
+
+      if (category) {
+        (updateData as typeof updateData & { categoryId?: string }).categoryId = category._id.toString();
+        (updateData as typeof updateData & { type?: typeof transaction.type }).type = category.type;
+      }
+    }
+
+    // If category changed (or is being set by ML), verify new category belongs to user.
     if (updateData.categoryId) {
       const category = await Category.findOne({
         _id: updateData.categoryId,
         userId,
+        isActive: true,
       });
       if (!category) {
         throw new NotFoundError('Category not found');
       }
-    }
-
-    // Calculate budget adjustment if amount changed
-    if (
-      transaction.type === 'expense' &&
-      updateData.amount !== undefined &&
-      updateData.amount !== transaction.amount
-    ) {
-      const difference = updateData.amount - transaction.amount;
-      await this.updateBudgetSpent(
-        userId!,
-        (updateData.categoryId || transaction.categoryId).toString(),
-        difference
-      );
+      // Ensure transaction.type matches category.type.
+      updateData.type = category.type;
     }
 
     Object.assign(transaction, updateData);
     await transaction.save();
+
+    // Adjust budget spent amounts for expense transactions.
+    const newType = transaction.type;
+    const newCategoryId = transaction.categoryId.toString();
+    const newAmount = transaction.amount;
+
+    if (oldType === 'expense' && newType === 'expense') {
+      // Always remove old values then add new to keep budgets consistent.
+      await this.updateBudgetSpent(userId, oldCategoryId, -oldAmount);
+      await this.updateBudgetSpent(userId, newCategoryId, newAmount);
+    } else if (oldType === 'expense' && newType !== 'expense') {
+      await this.updateBudgetSpent(userId, oldCategoryId, -oldAmount);
+    } else if (oldType !== 'expense' && newType === 'expense') {
+      await this.updateBudgetSpent(userId, newCategoryId, newAmount);
+    }
 
     // Invalidate cache
     await cacheDelPattern(`transactions:${userId}:*`);
@@ -231,6 +373,7 @@ export class TransactionService {
     const transaction = await Transaction.findOne({
       _id: transactionId,
       userId,
+      deletedAt: null,
     });
 
     if (!transaction) {
@@ -246,7 +389,8 @@ export class TransactionService {
       );
     }
 
-    await transaction.deleteOne();
+    transaction.deletedAt = new Date();
+    await transaction.save();
 
     // Invalidate cache
     await cacheDelPattern(`transactions:${userId}:*`);
@@ -271,6 +415,8 @@ export class TransactionService {
         {
           $match: {
             userId: new mongoose.Types.ObjectId(userId),
+            deletedAt: null,
+            type: { $in: ['income', 'expense'] },
             date: { $gte: startDate, $lte: endDate },
           },
         },
@@ -292,6 +438,8 @@ export class TransactionService {
         {
           $match: {
             userId: new mongoose.Types.ObjectId(userId),
+            deletedAt: null,
+            type: { $in: ['income', 'expense'] },
             date: { $gte: startDate, $lte: endDate },
           },
         },
@@ -339,6 +487,122 @@ export class TransactionService {
     await cacheSet(cacheKey, result, 300); // Cache for 5 minutes
 
     return result;
+  }
+
+  // Create a transfer between two accounts (creates outgoing + incoming legs)
+  async createTransfer(
+    userId: string,
+    amount: number,
+    description: string,
+    date: Date,
+    fromAccountId?: string,
+    toAccountId?: string,
+    notes?: string
+  ): Promise<{ outgoing: ITransaction; incoming: ITransaction; transferId: string }> {
+    const transferId = new mongoose.Types.ObjectId().toString();
+
+    // Resolve a neutral "Transfer" category for the user (or fall back to any expense/income category)
+    const findTransferCategory = async (type: 'expense' | 'income') => {
+      const cat = await Category.findOne({
+        userId,
+        isActive: true,
+        $or: [
+          { name: { $regex: /^transfer$/i } },
+          { name: { $regex: /^other$/i } },
+        ],
+      });
+      if (cat) return cat._id;
+
+      const fallback = await Category.findOne({ userId, isActive: true, type });
+      if (!fallback) throw new NotFoundError('No active category found for transfer');
+      return fallback._id;
+    };
+
+    const [outCatId, inCatId] = await Promise.all([
+      findTransferCategory('expense'),
+      findTransferCategory('income'),
+    ]);
+
+    const outgoing = await Transaction.create({
+      userId,
+      type: 'transfer',
+      amount,
+      description,
+      date,
+      notes,
+      transferId,
+      transferDirection: 'out',
+      linkedAccountId: toAccountId ? new mongoose.Types.ObjectId(toAccountId) : undefined,
+      bankAccountId: fromAccountId ? new mongoose.Types.ObjectId(fromAccountId) : undefined,
+      categoryId: outCatId,
+      categoryConfirmed: true,
+    });
+
+    const incoming = await Transaction.create({
+      userId,
+      type: 'transfer',
+      amount,
+      description,
+      date,
+      notes,
+      transferId,
+      transferDirection: 'in',
+      linkedAccountId: fromAccountId ? new mongoose.Types.ObjectId(fromAccountId) : undefined,
+      bankAccountId: toAccountId ? new mongoose.Types.ObjectId(toAccountId) : undefined,
+      categoryId: inCatId,
+      categoryConfirmed: true,
+    });
+
+    await outgoing.populate('categoryId');
+    await incoming.populate('categoryId');
+
+    emitToUser(userId, 'transaction:created', { transaction: (outgoing as any).toJSON() });
+    emitToUser(userId, 'transaction:created', { transaction: (incoming as any).toJSON() });
+
+    await cacheDelPattern(`transactions:${userId}:*`);
+    await cacheDelPattern(`analytics:${userId}:*`);
+
+    logger.info(`Transfer created: ${transferId}`);
+    return { outgoing, incoming, transferId };
+  }
+
+  // Trigger per-user ML model retraining (background, fire-and-forget)
+  async triggerRetrainIfNeeded(userId: string): Promise<void> {
+    try {
+      const count = await Transaction.countDocuments({
+        userId,
+        categoryConfirmed: true,
+        categoryId: { $exists: true, $ne: null },
+        deletedAt: null,
+      });
+
+      if (count < 20) return;
+
+      const transactions = await Transaction.find({
+        userId,
+        categoryConfirmed: true,
+        deletedAt: null,
+      })
+        .select('description amount categoryId')
+        .populate('categoryId', 'name')
+        .lean();
+
+      const samples = transactions.map((t: any) => ({
+        description: t.description,
+        amount: t.amount,
+        category: t.categoryId?.name ?? 'Other',
+      }));
+
+      const { default: axios } = await import('axios');
+      const mlUrl = process.env.ML_SERVICE_URL || 'http://ml-service:8001';
+      await axios.post(
+        `${mlUrl}/train/train/${userId}`,
+        { user_id: userId, transactions: samples },
+        { timeout: 5000 }
+      );
+    } catch {
+      // Non-critical — ignore failures silently
+    }
   }
 
   // Update budget spent amount

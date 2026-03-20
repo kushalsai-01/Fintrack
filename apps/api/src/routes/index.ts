@@ -14,52 +14,64 @@ import financialHealthRoutes from './health.js';
 import forecastRoutes from './forecast.js';
 import insightsRoutes from './insights.js';
 import reportsRoutes from './reports.js';
+import aiRoutes from './ai.js';
 import mongoose from 'mongoose';
 import { redis } from '../config/redis.js';
+import axios from 'axios';
 
 const router = Router();
 
-// Service health check endpoint (for Docker healthcheck)
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://ml-service:8001';
+
+// Deep health check endpoint (for Docker healthcheck + monitoring)
 router.get('/health', async (_req, res) => {
+  const checks: Record<string, string> = {
+    api: 'ok',
+    mongodb: 'unknown',
+    redis: 'unknown',
+    ml_service: 'unknown',
+  };
+
+  // Check MongoDB
   try {
-    const health = {
-      success: true,
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      mongodb: false,
-      redis: false
-    };
-
-    // Check MongoDB
-    try {
-      if (mongoose.connection.readyState === 1) {
-        await mongoose.connection.db.admin().ping();
-        health.mongodb = true;
-      }
-    } catch (error) {
-      console.error('MongoDB health check failed:', error);
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.db.admin().ping();
+      checks.mongodb = 'ok';
+    } else {
+      checks.mongodb = 'disconnected';
     }
-
-    // Check Redis
-    try {
-      if (redis) {
-        await redis.ping();
-        health.redis = true;
-      }
-    } catch (error) {
-      console.error('Redis health check failed:', error);
-    }
-
-    // Return 200 if at least MongoDB is healthy (Redis is optional)
-    const isHealthy = health.mongodb;
-    res.status(isHealthy ? 200 : 503).json(health);
-  } catch (error) {
-    res.status(503).json({
-      success: false,
-      error: 'Health check failed',
-      timestamp: new Date().toISOString()
-    });
+  } catch {
+    checks.mongodb = 'error';
   }
+
+  // Check Redis
+  try {
+    if (redis) {
+      await redis.ping();
+      checks.redis = 'ok';
+    } else {
+      checks.redis = 'unavailable';
+    }
+  } catch {
+    checks.redis = 'error';
+  }
+
+  // Check ML Service
+  try {
+    await axios.get(`${ML_SERVICE_URL}/health`, { timeout: 2000 });
+    checks.ml_service = 'ok';
+  } catch {
+    checks.ml_service = 'error';
+  }
+
+  const allOk = Object.values(checks).every((v) => v === 'ok');
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? 'healthy' : 'degraded',
+    checks,
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || '2.0.0',
+  });
 });
 
 // API routes
@@ -78,5 +90,6 @@ router.use('/financial-health', financialHealthRoutes);
 router.use('/forecast', forecastRoutes);
 router.use('/insights', insightsRoutes);
 router.use('/reports', reportsRoutes);
+router.use('/ai', aiRoutes);
 
 export default router;

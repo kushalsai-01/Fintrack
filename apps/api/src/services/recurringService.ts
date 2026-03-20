@@ -237,6 +237,7 @@ export class RecurringTransactionService {
 
     const transactions = await Transaction.find({
       userId,
+      deletedAt: null,
       date: { $gte: sixMonthsAgo },
       isRecurring: false,
     }).sort({ date: 1 });

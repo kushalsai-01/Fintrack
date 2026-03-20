@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/index.js';
 import { asyncHandler } from '../middleware/index.js';
+import { redis } from '../config/redis.js';
 
 /**
  * @route POST /api/auth/register
@@ -78,6 +79,17 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
  * @desc Logout user
  */
 export const logout = asyncHandler(async (req: Request, res: Response) => {
+  // Blacklist the current access token in Redis (TTL = 15 minutes = access token lifetime)
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    try {
+      await redis.setex(`blacklist:${token}`, 15 * 60, '1');
+    } catch {
+      // Non-critical — proceed even if Redis write fails
+    }
+  }
+
   await authService.logout(req.user!._id);
 
   res.json({

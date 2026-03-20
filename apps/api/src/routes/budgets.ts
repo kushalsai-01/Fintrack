@@ -36,6 +36,7 @@ router.post('/', validate(createBudgetSchema), budgetController.createBudget);
 router.get('/', budgetController.getBudgets);
 router.get('/active', budgetController.getActiveBudgets);
 router.get('/summary', budgetController.getSummary);
+router.get('/status', budgetController.getStatus);
 router.get('/:id', budgetController.getBudget);
 router.put('/:id', validate(updateBudgetSchema), budgetController.updateBudget);
 router.delete('/:id', budgetController.deleteBudget);

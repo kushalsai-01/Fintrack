@@ -2,6 +2,25 @@ import mongoose from 'mongoose';
 import { config } from './index.js';
 import { logger } from '../utils/logger.js';
 
+async function connectWithRetry(
+  uri: string,
+  options: mongoose.ConnectOptions,
+  retries = 5,
+  delayMs = 2000
+): Promise<void> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await mongoose.connect(uri, options);
+      return;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      const wait = delayMs * Math.pow(2, attempt - 1); // exponential back-off
+      logger.warn(`MongoDB connection attempt ${attempt}/${retries} failed — retrying in ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
 export async function connectDatabase(): Promise<void> {
   try {
     const options: mongoose.ConnectOptions = {
@@ -11,7 +30,7 @@ export async function connectDatabase(): Promise<void> {
       socketTimeoutMS: 45000,
     };
 
-    await mongoose.connect(config.mongodb.uri, options);
+    await connectWithRetry(config.mongodb.uri, options);
     
     logger.info('✅ MongoDB connected successfully');
 

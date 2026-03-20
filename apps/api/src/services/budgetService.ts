@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Budget, IBudget, Transaction, Category } from '../models/index.js';
+import { Budget, IBudget, Transaction, Category, Notification } from '../models/index.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
 import { cacheDelPattern } from '../config/redis.js';
 import { logger } from '../utils/logger.js';
@@ -266,6 +266,149 @@ export class BudgetService {
     return summary;
   }
 
+  /**
+   * Get per-budget status suitable for UI / notifications.
+   * This is separate from `getSummary` because it includes a grade per budget.
+   */
+  async getStatus(userId: string): Promise<{
+    summary: {
+      totalBudget: number;
+      totalSpent: number;
+      totalRemaining: number;
+      overallPercentUsed: number;
+    };
+    budgets: Array<{
+      id: string;
+      name: string;
+      category?: string;
+      percentUsed: number;
+      remaining: number;
+      status: 'excellent' | 'good' | 'fair' | 'poor';
+      isOverBudget: boolean;
+      period: string;
+      startDate: Date;
+      endDate: Date;
+      alertThreshold: number;
+      alertEnabled: boolean;
+    }>;
+  }> {
+    const budgets = await this.getActive(userId);
+
+    const totals = budgets.reduce(
+      (acc, b) => {
+        const total = b.amount + (b.rolloverAmount ?? 0);
+        acc.totalBudget += total;
+        acc.totalSpent += b.spent;
+        acc.totalRemaining += Math.max(0, total - b.spent);
+        return acc;
+      },
+      {
+        totalBudget: 0,
+        totalSpent: 0,
+        totalRemaining: 0,
+      }
+    );
+
+    const overallPercentUsed =
+      totals.totalBudget > 0 ? (totals.totalSpent / totals.totalBudget) * 100 : 0;
+
+    const budgetsWithStatus = budgets.map((budget) => {
+      const percentUsed = Number(budget.percentUsed ?? 0);
+      const remaining =
+        typeof (budget as any).remaining === 'number'
+          ? Number((budget as any).remaining)
+          : Math.max(0, budget.amount + (budget.rolloverAmount ?? 0) - budget.spent);
+
+      const status: 'excellent' | 'good' | 'fair' | 'poor' =
+        percentUsed >= 100
+          ? 'poor'
+          : percentUsed >= budget.alertThreshold
+            ? 'fair'
+            : percentUsed >= 70
+              ? 'good'
+              : 'excellent';
+
+      const category =
+        typeof (budget as any).categoryId === 'object'
+          ? (budget as any).categoryId?.name
+          : undefined;
+
+      return {
+        id: budget._id.toString(),
+        name: budget.name,
+        category,
+        percentUsed: Math.round(percentUsed * 10) / 10,
+        remaining,
+        status,
+        isOverBudget: Boolean((budget as any).isOverBudget),
+        period: budget.period,
+        startDate: budget.startDate,
+        endDate: budget.endDate,
+        alertThreshold: budget.alertThreshold,
+        alertEnabled: budget.alertEnabled,
+      };
+    });
+
+    return {
+      summary: {
+        totalBudget: totals.totalBudget,
+        totalSpent: totals.totalSpent,
+        totalRemaining: totals.totalRemaining,
+        overallPercentUsed: Math.round(overallPercentUsed * 10) / 10,
+      },
+      budgets: budgetsWithStatus,
+    };
+  }
+
+  // Hourly budget alert notifications
+  async notifyBudgetAlerts(): Promise<void> {
+    const now = new Date();
+
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const userIdStrings = await Budget.distinct('userId', {
+      isActive: true,
+      alertEnabled: true,
+    });
+
+    for (const userId of userIdStrings) {
+      const userIdStr = userId.toString();
+      const activeBudgets = await this.getActive(userIdStr);
+
+      for (const budget of activeBudgets) {
+        if (!budget.alertEnabled) continue;
+
+        const percentUsed = budget.percentUsed;
+        if (percentUsed < budget.alertThreshold) continue;
+
+        const title = `Budget Alert: ${budget.name}`;
+        const existingToday = await Notification.findOne({
+          userId: userIdStr,
+          type: 'warning',
+          title,
+          createdAt: { $gte: todayStart, $lte: todayEnd },
+        });
+
+        if (existingToday) continue;
+
+        const message = `${budget.name} is at ${percentUsed}% used (threshold: ${budget.alertThreshold}%).`;
+
+        await Notification.create({
+          userId: userIdStr,
+          type: 'warning',
+          title,
+          message,
+          actionUrl: `/budgets/${budget._id}`,
+          metadata: { percentUsed, budgetId: budget._id.toString() },
+        });
+      }
+    }
+  }
+
   // Helper methods
   private calculateEndDate(startDate: Date, period: string): Date {
     const endDate = new Date(startDate);
@@ -298,6 +441,7 @@ export class BudgetService {
     const match: Record<string, unknown> = {
       userId: new mongoose.Types.ObjectId(userId),
       type: 'expense',
+      deletedAt: null,
       date: { $gte: startDate, $lte: endDate },
     };
 

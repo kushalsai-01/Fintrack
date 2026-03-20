@@ -6,6 +6,9 @@ import compression from 'compression';
 import passport from 'passport';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
 
 import config from './config/index.js';
 import { configurePassport } from './config/passport.js';
@@ -39,6 +42,42 @@ export const createApp = (): Application => {
   // Body parsing
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Input sanitization — strip MongoDB operators ($gt, $where, etc.) from req.body/params/query
+  app.use(mongoSanitize({
+    replaceWith: '_',
+    onSanitize: ({ req, key }: { req: Request; key: string }) => {
+      logger.warn('MongoDB operator stripped from request', { path: req.path, key });
+    },
+  }));
+
+  // Request ID for traceability
+  app.use((req: Request & { requestId?: string }, res: Response, next: NextFunction) => {
+    const requestId = (req.headers['x-request-id'] as string | undefined) ?? crypto.randomUUID();
+    req.requestId = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
+
+  // Rate limiting (industry-grade baseline)
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many requests' } },
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: { code: 'RATE_LIMIT_AUTH', message: 'Too many auth requests' } },
+  });
+
+  app.use('/api', apiLimiter);
+  app.use('/api/auth', authLimiter);
 
   // Request logging
   if (config.nodeEnv !== 'test') {
